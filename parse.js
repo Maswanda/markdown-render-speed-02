@@ -765,6 +765,7 @@ function parseLinkDestTitle(src, i) {
     if (end === -1) return null;
     dest = src.slice(j + 1, end);
     if (dest.indexOf('<') !== -1 || dest.indexOf('\n') !== -1) return null;
+    dest = dest.replace(/\\([!-/:-@\[-`{-~])/g, '$1');
     j = end + 1;
   } else {
     // bare destination: no spaces, balanced parens
@@ -783,7 +784,8 @@ function parseLinkDestTitle(src, i) {
     }
     dest = src.slice(j, k);
     if (dest.length === 0) return null;
-    // dest must not contain control chars or unescaped spaces
+    // Process backslash escapes in the destination (\X -> X for ASCII punct).
+    dest = dest.replace(/\\([!-/:-@\[-`{-~])/g, '$1');
     j = k;
   }
   // skip whitespace
@@ -1333,14 +1335,16 @@ function renderInline(nodes, refs) {
     } else if (nd.t === 'del') {
       html += '<del>' + renderInline(nd.children, refs) + '</del>';
     } else if (nd.t === 'link') {
-      const href = cleanUrl(unescapeEntities(nd.href));
+      // Hrefs keep entities as-is (do not decode); backslash escapes were
+      // already processed when the destination was parsed.
+      const href = cleanUrl(nd.href);
       if (href === null) { html += escapeHtml(nd.labelHtml || ''); continue; }
       let a = '<a href="' + escapeAttr(href) + '"';
       if (nd.title !== null && nd.title !== undefined) a += ' title="' + escapeAttr(unescapeEntities(nd.title)) + '"';
       a += '>' + (nd.labelHtml !== undefined ? nd.labelHtml : '') + '</a>';
       html += a;
     } else if (nd.t === 'image') {
-      const href = cleanUrl(unescapeEntities(nd.href));
+      const href = cleanUrl(nd.href);
       if (href === null) { html += ''; continue; }
       let im = '<img src="' + escapeAttr(href) + '" alt="' + escapeAttr(unescapeEntities(nd.alt || '')) + '"';
       if (nd.title !== null && nd.title !== undefined) im += ' title="' + escapeAttr(unescapeEntities(nd.title)) + '"';
