@@ -881,11 +881,12 @@ function parseExtendedAutolink(src, i) {
 }
 
 // Trim trailing punctuation (.,;:!? and unbalanced ) ) from an autolink candidate.
+// Also trim trailing _ * ~ which may close emphasis.
 function trimTrailingPunct(s) {
   let end = s.length;
   while (end > 0) {
     const ch = s[end - 1];
-    if (ch === '.' || ch === ',' || ch === ';' || ch === ':' || ch === '!' || ch === '?' || ch === "'") { end--; continue; }
+    if (ch === '.' || ch === ',' || ch === ';' || ch === ':' || ch === '!' || ch === '?' || ch === "'" || ch === '_' || ch === '*' || ch === '~') { end--; continue; }
     if (ch === ')') {
       // keep only if balanced
       let open = 0, close = 0;
