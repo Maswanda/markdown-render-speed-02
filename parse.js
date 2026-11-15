@@ -858,12 +858,23 @@ function parseExtendedAutolink(src, i) {
     let text = trimTrailingPunct(sm[0]);
     return { href: text, text, end: i + text.length };
   }
+  // scheme: (e.g. mailto:, xmpp:) followed by non-space text
+  const scm = src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]+/);
+  if (scm) {
+    let text = trimTrailingPunct(scm[0]);
+    // The part after the scheme must contain a dot (domain) or be an email.
+    const after = text.slice(text.indexOf(':') + 1);
+    if (after.indexOf('.') !== -1 || after.indexOf('@') !== -1) {
+      return { href: text, text, end: i + text.length };
+    }
+  }
   // email: user@host.tld
   const em = src.slice(i).match(/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/);
   if (em) {
     let text = trimTrailingPunct(em[0]);
-    // must have a dot and valid domain
+    // must have a dot and valid domain; domain must not end with - or _
     if (text.indexOf('.') === -1) return null;
+    if (text.endsWith('-') || text.endsWith('_')) return null;
     return { href: 'mailto:' + text, text, end: i + text.length };
   }
   return null;
@@ -1124,7 +1135,7 @@ function parseInline(src, refs, inLink) {
       continue;
     }
     // --- extended autolink (GFM) ---
-    if ((ch === 'w' && src.startsWith('www.', i)) || (isAlpha(ch) && (src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:\/\//) || src.slice(i).match(/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/)))) {
+    if ((ch === 'w' && src.startsWith('www.', i)) || (isAlpha(ch) && (src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:\/\//) || src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]+/) || src.slice(i).match(/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/)))) {
       // Only if not preceded by a word char or / or other link-ish char
       const prev = i === 0 ? '' : src[i - 1];
       if (i === 0 || isWhitespace(prev) || prev === '*' || prev === '_' || prev === '~' || prev === '(' || prev === '[' || prev === '>' || prev === '"' || prev === "'") {
