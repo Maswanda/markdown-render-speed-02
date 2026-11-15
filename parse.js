@@ -523,10 +523,12 @@ function matchSetext(line) {
   if (p >= line.length) return 0;
   const ch = line[p];
   if (ch !== '=' && ch !== '-') return 0;
-  for (let i = p; i < line.length; i++) {
-    const c = line[i];
-    if (c !== ch && c !== ' ' && c !== '\t') return 0;
-  }
+  // A run of the same char, then only trailing spaces/tabs (no spaces
+  // inside the run, no more of the char after a space).
+  let i = p;
+  while (i < line.length && line[i] === ch) i++;
+  while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i++;
+  if (i < line.length) return 0;
   return ch === '=' ? 1 : 2;
 }
 
@@ -1583,7 +1585,10 @@ function parseBlocks(lines, refs) {
       i++;
     }
     if (setextLevel !== 0) {
-      blocks.push({ type: 'heading', level: setextLevel, text: paraLines.join('\n') });
+      // Setext heading text is stripped of leading/trailing whitespace
+      // on each line.
+      const headingText = paraLines.map(s => s.replace(/^[ ]+/, '').replace(/[ \t]+$/, '')).join('\n');
+      blocks.push({ type: 'heading', level: setextLevel, text: headingText });
       continue;
     }
     if (tableDelim) {
