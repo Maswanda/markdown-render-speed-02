@@ -1665,6 +1665,8 @@ function parseList(lines, start, refs) {
     let skippedBlank = false;
     while (i < lines.length && isBlank(lines[i])) { skippedBlank = true; i++; }
     if (i >= lines.length) break;
+    // A thematic break ends the list (e.g. "* * *" is an hr, not an item).
+    if (isThematicBreak(lines[i])) break;
     const li = matchListItem(lines[i]);
     if (!li) break;
     // must match the list type (ordered vs unordered, and same delimiter for ordered)
