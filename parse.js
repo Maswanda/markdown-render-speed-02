@@ -268,7 +268,8 @@ function expandTabs(s) {
 
 // Normalise a link label: collapse whitespace, lowercase, trim.
 function normalizeLabel(s) {
-  return s.trim().replace(/\s+/g, ' ').toLowerCase();
+  // Unicode case folding: ẞ (U+1E9E) and ß (U+00DF) fold to "ss".
+  return s.trim().replace(/\s+/g, ' ').replace(/[\u00DF\u1E9E]/g, 'ss').toLowerCase();
 }
 
 // ---------------------------------------------------------------------------
@@ -284,25 +285,40 @@ function parseLinkDef(lines, i, refs) {
   let p = 0;
   while (p < line.length && line[p] === ' ') p++;
   if (p > 3 || line[p] !== '[') return null;
-  // find matching ] (balanced, with escapes)
+  // find matching ] (balanced, with escapes); label may span one more line
   let depth = 0, j = p;
   let labelEnd = -1;
-  for (; j < line.length; j++) {
-    const ch = line[j];
-    if (ch === '\\' && j + 1 < line.length) { j++; continue; }
+  let labelText = '';
+  let labelEndLine = i;
+  // Scan the current line, then (if needed) the next line joined with \n.
+  const scanStr = line + (i + 1 < lines.length ? '\n' + lines[i + 1] : '');
+  for (; j < scanStr.length; j++) {
+    const ch = scanStr[j];
+    if (ch === '\\' && j + 1 < scanStr.length) { j++; continue; }
     if (ch === '[') depth++;
     else if (ch === ']') { depth--; if (depth === 0) { labelEnd = j; break; } }
   }
   if (labelEnd === -1) return null;
-  const labelRaw = line.slice(p + 1, labelEnd);
-  if (labelRaw.length === 0) return null;
+  // labelRaw spans scanStr[p+1 .. labelEnd]; map back to lines if it crossed
+  labelText = scanStr.slice(p + 1, labelEnd);
+  if (labelText.length === 0) return null;
+  const labelRaw = labelText;
+  // Determine which line the label ended on and the position of ':' after it.
+  let k;
+  if (labelEnd < line.length) {
+    labelEndLine = i;
+    k = labelEnd + 1;
+  } else {
+    labelEndLine = i + 1;
+    k = labelEnd - line.length; // position in next line (after the \n)
+  }
   // label must not contain unescaped [ ] handled above; also must not be blank after trim? marked allows.
-  let k = labelEnd + 1;
-  if (line[k] !== ':') return null;
+  // k is the position after ']' in the label's end line; check for ':' there.
+  let cur = labelEndLine;
+  let s = lines[cur];
+  if (s[k] !== ':') return null;
   k++;
   // skip spaces/tabs, allow one newline + spaces
-  let cur = i;
-  let s = line;
   const skipWs = () => {
     while (true) {
       while (k < s.length && (s[k] === ' ' || s[k] === '\t')) k++;
