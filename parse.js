@@ -1065,7 +1065,7 @@ function parseInline(src, refs, inLink) {
       flushText(i);
       const node = { t: 'delim', ch, count, canOpen, canClose, active: true, children: [] };
       out.push(node);
-      delims.push({ node, outIndex: out.length - 1, count, canOpen, canClose });
+      delims.push({ node, outIndex: out.length - 1, count, initialCount: count, canOpen, canClose });
       i = j;
       textStart = i;
       continue;
@@ -1367,11 +1367,13 @@ function resolveEmphasis(out, delims) {
     }
   }
   // Any remaining active delim nodes become literal text. A delimiter that
-  // paired (so its slot holds a wrap node or is consumed) but still has a
-  // leftover count contributes its leftover chars as text: opener leftovers
-  // go before the wrap, closer leftovers replace the consumed slot.
+  // PAIRED (count decreased from initial) but still has a leftover count
+  // contributes its leftover chars as text: opener leftovers go before the
+  // wrap, closer leftovers replace the consumed slot. A delim whose count
+  // never decreased is content inside a wrap (already rendered) or an
+  // unpaired delim (handled by the loop below) — never add it here.
   // Process in descending slot order so insertions don't shift later indices.
-  const leftovers = delims.filter(d => d.node.active && d.count > 0);
+  const leftovers = delims.filter(d => d.node.active && d.count > 0 && d.count < d.initialCount);
   leftovers.sort((a, b) => b.outIndex - a.outIndex);
   for (const d of leftovers) {
     const slot = out[d.outIndex];
