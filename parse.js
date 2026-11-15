@@ -1488,9 +1488,10 @@ function parseBlocks(lines, refs) {
         i++;
       }
       let htmlText = htmlLines.join('\n');
-      // Types 1-5: if the next line is whitespace-only (blank but not empty),
-      // the block text gains a trailing newline.
-      if (htype <= 5 && ended && i < n && isBlank(lines[i]) && lines[i] !== '') {
+      // Types 1-5: the block's last line keeps its trailing newline when the
+      // next line is not empty (a truly empty line separates blocks; a
+      // whitespace-only line does not end the newline).
+      if (htype <= 5 && ended && i < n && lines[i] !== '') {
         htmlText += '\n';
       }
       blocks.push({ type: 'html', text: htmlText });
