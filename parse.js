@@ -127,7 +127,10 @@ function escapeHtml(s) {
             if (i > start) out += s.slice(start, i);
             if (code === 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) out += '\uFFFD';
             else if (code === 38) out += '&amp;';
-            else out += String.fromCodePoint(code);
+            else {
+              const decoded = String.fromCodePoint(code);
+              out += ESC[decoded] !== undefined ? ESC[decoded] : decoded;
+            }
             i = semi;
             start = i + 1;
             continue;
@@ -156,14 +159,26 @@ function escapeHtml(s) {
   return out;
 }
 
-// Escape for attribute / href: encode & < > " (not ') - matches marked's escape() with encode=true
+// Escape for attribute / href: encode & < > " (not ') - matches marked's escape() with encode=true.
+// A & that starts a valid entity (&name; &#123; &#xAB;) is preserved as-is.
 function escapeAttr(s) {
   let out = '';
   let start = 0;
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
     let e;
-    if (ch === '&') e = '&amp;';
+    if (ch === '&') {
+      const semi = s.indexOf(';', i + 1);
+      if (semi !== -1 && semi - i <= 32) {
+        const body = s.slice(i + 1, semi);
+        if ((body[0] === '#' && ((body[1] === 'x' || body[1] === 'X') ? /^[0-9A-Fa-f]{1,6}$/.test(body.slice(2)) : /^\d{1,7}$/.test(body.slice(1)))) || /^[A-Za-z][A-Za-z0-9]*$/.test(body)) {
+          // valid entity: preserve as-is (skip past it)
+          i = semi;
+          continue;
+        }
+      }
+      e = '&amp;';
+    }
     else if (ch === '<') e = '&lt;';
     else if (ch === '>') e = '&gt;';
     else if (ch === '"') e = '&quot;';
@@ -1372,14 +1387,14 @@ function renderInline(nodes, refs) {
       const href = cleanUrl(nd.href);
       if (href === null) { html += escapeHtml(nd.labelHtml || ''); continue; }
       let a = '<a href="' + escapeAttr(href) + '"';
-      if (nd.title !== null && nd.title !== undefined) a += ' title="' + escapeAttr(unescapeEntities(nd.title)) + '"';
+      if (nd.title !== null && nd.title !== undefined) a += ' title="' + escapeAttr(nd.title) + '"';
       a += '>' + (nd.labelHtml !== undefined ? nd.labelHtml : '') + '</a>';
       html += a;
     } else if (nd.t === 'image') {
       const href = cleanUrl(nd.href);
       if (href === null) { html += ''; continue; }
       let im = '<img src="' + escapeAttr(href) + '" alt="' + escapeAttr(unescapeEntities(nd.alt || '')) + '"';
-      if (nd.title !== null && nd.title !== undefined) im += ' title="' + escapeAttr(unescapeEntities(nd.title)) + '"';
+      if (nd.title !== null && nd.title !== undefined) im += ' title="' + escapeAttr(nd.title) + '"';
       im += '>';
       html += im;
     }
