@@ -947,7 +947,18 @@ function parseInline(src, refs, inLink) {
       while (j < n && src[j] === '`') j++;
       const ticks = j - i;
       const closer = '`'.repeat(ticks);
-      const closeIdx = src.indexOf(closer, j);
+      // Find a closer run of exactly `ticks` backticks (not part of a
+      // longer run on either side).
+      let closeIdx = -1;
+      let searchFrom = j;
+      while (true) {
+        const cand = src.indexOf(closer, searchFrom);
+        if (cand === -1) break;
+        const beforeOk = cand === 0 || src[cand - 1] !== '`';
+        const afterOk = cand + ticks >= n || src[cand + ticks] !== '`';
+        if (beforeOk && afterOk) { closeIdx = cand; break; }
+        searchFrom = cand + 1;
+      }
       if (closeIdx !== -1) {
         let content = src.slice(j, closeIdx);
         // collapse newlines to spaces, strip one leading/trailing space if both present and content has non-space
