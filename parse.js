@@ -325,10 +325,13 @@ function parseLinkDef(lines, i, refs) {
   }
   // optional title
   let title = null;
-  // skip spaces on same line
+  // skip spaces on same line; a title must be separated from the dest by
+  // whitespace (no space means trailing junk, not a title).
   let saveCur = cur, saveK = k, saveS = s;
+  const wsStart = k;
   while (k < s.length && (s[k] === ' ' || s[k] === '\t')) k++;
   if (k < s.length) {
+    if (k === wsStart) return null; // no whitespace before title/junk
     // title on same line
     const t = parseTitle(s, k);
     if (t) {
@@ -376,8 +379,12 @@ function parseTitle(s, k) {
       if (ch === '\\' && j + 1 < s.length && (s[j + 1] === q || s[j + 1] === '\\')) { out += s[j + 1]; j += 2; continue; }
       if (ch === q) return { title: out, end: j + 1 };
       if (ch === '\n') {
-        // " title may span lines only if next line is not blank; ' title cannot span a blank line
-        if (q === "'") return null;
+        // A title may span lines but cannot contain a blank line: if the
+        // next line is blank (empty or only whitespace then end/newline),
+        // the title is invalid.
+        let m = j + 1;
+        while (m < s.length && (s[m] === ' ' || s[m] === '\t')) m++;
+        if (m >= s.length || s[m] === '\n') return null;
       }
       out += ch;
       j++;
