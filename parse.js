@@ -672,8 +672,12 @@ function htmlBlockType(line) {
   // type 6: block tag
   m = rest.match(/^<\/?([A-Za-z][A-Za-z0-9-]*)/);
   if (m && BLOCK_TAGS.has(m[1].toLowerCase())) return 6;
-  // type 7: any other tag (complete on the line, not a bare < or </)
-  if (/^<\/?[A-Za-z][A-Za-z0-9-]*(\s[^>]*)?\/?>/.test(rest) || /^<\/[A-Za-z][A-Za-z0-9-]*\s*>/.test(rest)) return 7;
+  // type 7: any other tag, but only when followed by whitespace or end of line
+  // (a tag followed by text is inline HTML, not an HTML block).
+  m = rest.match(/^<\/?[A-Za-z][A-Za-z0-9-]*(\s[^>]*)?\/?>/);
+  if (m && /^[\s]*$/.test(rest.slice(m[0].length))) return 7;
+  m = rest.match(/^<\/[A-Za-z][A-Za-z0-9-]*\s*>/);
+  if (m && /^[\s]*$/.test(rest.slice(m[0].length))) return 7;
   return 0;
 }
 
@@ -1576,8 +1580,7 @@ function parseBlocks(lines, refs) {
       const rows = [];
       while (i < n && !isBlank(lines[i])) {
         const l = lines[i];
-        // a row must contain a pipe (or be a single cell)
-        if (l.indexOf('|') === -1 && headCells.length > 1) break;
+        // A row without pipes is a single-cell row (remaining cells empty).
         rows.push(splitTableRow(l));
         i++;
       }
