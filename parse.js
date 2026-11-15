@@ -503,11 +503,11 @@ function matchAtx(line) {
   let end = line.length;
   // strip trailing spaces
   while (end > start && (line[end - 1] === ' ' || line[end - 1] === '\t')) end--;
-  // strip closing # sequence
+  // strip closing # sequence (may be the entire content, e.g. "### ###")
   if (end > start) {
     let e = end;
     while (e > start && line[e - 1] === '#') e--;
-    if (e < end && e > start && (line[e - 1] === ' ' || line[e - 1] === '\t')) {
+    if (e < end && e >= start && (line[e - 1] === ' ' || line[e - 1] === '\t')) {
       end = e;
       while (end > start && (line[end - 1] === ' ' || line[end - 1] === '\t')) end--;
     }
