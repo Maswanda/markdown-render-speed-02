@@ -1366,7 +1366,24 @@ function resolveEmphasis(out, delims) {
       if (closer.count === 0) closer.node.active = false;
     }
   }
-  // Any remaining active delim nodes become literal text.
+  // Any remaining active delim nodes become literal text. A delimiter that
+  // paired (so its slot holds a wrap node or is consumed) but still has a
+  // leftover count contributes its leftover chars as text: opener leftovers
+  // go before the wrap, closer leftovers replace the consumed slot.
+  // Process in descending slot order so insertions don't shift later indices.
+  const leftovers = delims.filter(d => d.node.active && d.count > 0);
+  leftovers.sort((a, b) => b.outIndex - a.outIndex);
+  for (const d of leftovers) {
+    const slot = out[d.outIndex];
+    if (!slot) continue;
+    if (slot.t === 'em' || slot.t === 'strong' || slot.t === 'del') {
+      // opener with leftover: insert text before the wrap
+      out.splice(d.outIndex, 0, { t: 'text', s: d.node.ch.repeat(d.count) });
+    } else if (slot.t === 'consumed') {
+      out[d.outIndex] = { t: 'text', s: d.node.ch.repeat(d.count) };
+    }
+    // if slot is a delim node, the loop below handles it
+  }
   for (let k = 0; k < out.length; k++) {
     const nd = out[k];
     if (nd && nd.t === 'delim') {
