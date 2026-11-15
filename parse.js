@@ -376,7 +376,7 @@ function parseTitle(s, k) {
     let out = '';
     while (j < s.length) {
       const ch = s[j];
-      if (ch === '\\' && j + 1 < s.length && (s[j + 1] === q || s[j + 1] === '\\')) { out += s[j + 1]; j += 2; continue; }
+      if (ch === '\\' && j + 1 < s.length && isAsciiPunct(s[j + 1])) { out += s[j + 1]; j += 2; continue; }
       if (ch === q) return { title: out, end: j + 1 };
       if (ch === '\n') {
         // A title may span lines but cannot contain a blank line: if the
@@ -397,7 +397,7 @@ function parseTitle(s, k) {
     let depth = 1;
     while (j < s.length) {
       const ch = s[j];
-      if (ch === '\\' && j + 1 < s.length) { out += s[j + 1]; j += 2; continue; }
+      if (ch === '\\' && j + 1 < s.length && isAsciiPunct(s[j + 1])) { out += s[j + 1]; j += 2; continue; }
       if (ch === '(') { depth++; }
       else if (ch === ')') { depth--; if (depth === 0) return { title: out, end: j + 1 }; }
       out += ch;
@@ -1780,7 +1780,11 @@ function renderBlocks(blocks, refs) {
       html += '<pre><code>' + escapeHtmlStrict(b.text) + '</code></pre>\n';
     } else if (b.type === 'fence') {
       let h = '<pre><code';
-      if (b.lang) h += ' class="language-' + escapeAttr(b.lang.split(/\s+/)[0]) + '"';
+      if (b.lang) {
+        // Backslash escapes in the info string are processed (\X -> X).
+        const lang = b.lang.replace(/\\([!-/:-@\[-`{-~])/g, '$1');
+        h += ' class="language-' + escapeAttr(lang.split(/\s+/)[0]) + '"';
+      }
       h += '>' + escapeHtmlStrict(b.text) + '</code></pre>\n';
       html += h;
     } else if (b.type === 'hr') {
