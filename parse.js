@@ -902,10 +902,15 @@ function parseExtendedAutolink(src, i, allowUnderscore) {
   const scm = src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]+/);
   if (scm) {
     let text = trimTrailingPunct(scm[0]);
-    // The part after the scheme must contain a dot (domain) or be an email.
-    const after = text.slice(text.indexOf(':') + 1);
-    if (after.indexOf('.') !== -1 || after.indexOf('@') !== -1) {
-      return { href: text, text, end: i + text.length };
+    // The trimmed text must still contain a colon (the scheme separator).
+    // The part after the scheme must contain a dot (domain) or be an email,
+    // and must have at least one alphanumeric character (not just punctuation).
+    const colonIdx = text.indexOf(':');
+    if (colonIdx !== -1) {
+      const after = text.slice(colonIdx + 1);
+      if ((after.indexOf('.') !== -1 || after.indexOf('@') !== -1) && /[A-Za-z0-9]/.test(after)) {
+        return { href: text, text, end: i + text.length };
+      }
     }
   }
   // email: user@host.tld
