@@ -676,6 +676,42 @@ function matchBlockquote(line) {
   return q;
 }
 
+// The blockquote's content line, with tabs expanded by absolute column.
+// A tab after ">" is the separator: only 1 of its columns is consumed,
+// the rest (expansion-1) becomes content indent (cm-006: ">\tfoo" gives
+// content "  foo", ">\t\tfoo" gives content "  \tfoo" = 6-space indent,
+// indented code "  foo"). A leading tab in the remaining content expands
+// from the absolute column where the content starts.
+function blockquoteSlice(line) {
+  let p = 0;
+  while (p < line.length && line[p] === ' ') p++;
+  let q = p + 1;
+  let prefix = '';
+  let contentCol;
+  if (q < line.length && line[q] === '\t') {
+    const tabCol = p + 1;
+    const exp = 4 - (tabCol % 4);
+    prefix = ' '.repeat(exp - 1);
+    contentCol = ((tabCol >> 2) + 1) << 2;
+    q++;
+  } else if (q < line.length && line[q] === ' ') {
+    contentCol = p + 2;
+    q++;
+  } else {
+    contentCol = p + 1;
+  }
+  let s = line.slice(q);
+  // Expand every leading tab in the content, tracking the column.
+  let col = contentCol;
+  let out = '';
+  let k = 0;
+  while (k < s.length && (s[k] === ' ' || s[k] === '\t')) {
+    if (s[k] === ' ') { out += ' '; col++; k++; }
+    else { const adv = 4 - (col % 4); out += ' '.repeat(adv); col += adv; k++; }
+  }
+  return prefix + out + s.slice(k);
+}
+
 // Check for list item start. Returns {marker, ordered, start, contentStart, indent, bullet} or null.
 // marker is the bullet char or the ordered number+delimiter.
 function matchListItem(line) {
@@ -1778,13 +1814,8 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
         const l = lines[i];
         const m = matchBlockquote(l);
         if (m !== -1) {
-          // Expand a leading tab in the sliced content relative to its
-          // ORIGINAL column (m): a tab at col m advances to the next
-          // multiple of 4, so it becomes 4-(m%4) spaces. Without this,
-          // the tab is read at col 0 and expands to 4 spaces (doc-36:
-          // "> \tindented" in a fence should give 2 spaces, not 4).
-          let s = l.slice(m);
-          if (s[0] === '\t') s = ' '.repeat(4 - (m % 4)) + s.slice(1);
+          // Slice with tabs expanded by absolute column (cm-006/007).
+          let s = blockquoteSlice(l);
           // A > line whose content is only whitespace (e.g. ">  " -> " ")
           // is paragraph text, not a blank line, when a paragraph is in
           // progress (cm-241: "> foo\n>  " gives <p>foo\n </p>). Append
