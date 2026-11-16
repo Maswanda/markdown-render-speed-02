@@ -1267,7 +1267,7 @@ function parseInline(src, refs, inLink) {
     if (!inLink && ((ch === 'w' && src.startsWith('www.', i)) || (isAlpha(ch) && (src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:\/\//) || src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]+/) || src.slice(i).match(/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/))))) {
       // Only if not preceded by a word char or / or other link-ish char
       const prev = i === 0 ? '' : src[i - 1];
-      if (i === 0 || isWhitespace(prev) || prev === '*' || prev === '_' || prev === '~' || prev === '(' || prev === '[' || prev === '>' || prev === '"' || prev === "'") {
+      if (i === 0 || isWhitespace(prev) || prev === '*' || prev === '_' || prev === '~' || prev === '(' || prev === '[' || prev === '>' || prev === '<' || prev === '"' || prev === "'") {
         // A trailing _ after an email is an emphasis closer if there's an
         // unmatched opening _ delim in the token stream so far.
         let allowUnderscore = false;
