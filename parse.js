@@ -914,11 +914,13 @@ function parseExtendedAutolink(src, i, allowUnderscore) {
   // www.
   if (src.startsWith('www.', i)) {
     let j = i + 4;
-    // domain: labels separated by dots, then optional path
+    // domain: labels separated by dots, then optional path. A backslash
+    // is a valid URL char here (doc-40: www.flux.com\ links with the
+    // backslash, href ...%5C, and it is NOT a hard break).
     let k = j;
     while (k < src.length) {
       const ch = src[k];
-      if (isAlnum(ch) || ch === '-' || ch === '_' || ch === '.' || ch === '~' || ch === '/' || ch === '?' || ch === '#' || ch === '%' || ch === '=' || ch === '&' || ch === '+' || ch === ',' || ch === ';' || ch === ':' || ch === '@' || ch === '$' || ch === '!' || ch === "'" || ch === '(' || ch === ')' || ch === '*') k++;
+      if (isAlnum(ch) || ch === '-' || ch === '_' || ch === '.' || ch === '~' || ch === '/' || ch === '?' || ch === '#' || ch === '%' || ch === '=' || ch === '&' || ch === '+' || ch === ',' || ch === ';' || ch === ':' || ch === '@' || ch === '$' || ch === '!' || ch === "'" || ch === '(' || ch === ')' || ch === '*' || ch === '\\') k++;
       else break;
     }
     let text = src.slice(i, k);
@@ -1771,7 +1773,14 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
         const l = lines[i];
         const m = matchBlockquote(l);
         if (m !== -1) {
-          qLines.push(l.slice(m));
+          // Expand a leading tab in the sliced content relative to its
+          // ORIGINAL column (m): a tab at col m advances to the next
+          // multiple of 4, so it becomes 4-(m%4) spaces. Without this,
+          // the tab is read at col 0 and expands to 4 spaces (doc-36:
+          // "> \tindented" in a fence should give 2 spaces, not 4).
+          let s = l.slice(m);
+          if (s[0] === '\t') s = ' '.repeat(4 - (m % 4)) + s.slice(1);
+          qLines.push(s);
           i++;
         } else if (isBlank(l)) {
           // A truly blank line (no > marker) ends the blockquote. A line that
