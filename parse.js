@@ -1772,10 +1772,11 @@ function parseList(lines, start, refs) {
         blankRun = 0;
         continue;
       }
-      // a list item with indent < contentIndent but >= first.indent could be a sibling or nested
+      // A list item line (not indented enough to belong to this item)
+      // ends the current item; the outer loop decides if it's a sibling
+      // or a new list. (A less-indented item is a sibling, not nested.)
       const nl = matchListItem(l);
-      if (nl && nl.indent >= first.indent) {
-        // sibling item (handled by outer loop) or a nested item starting here
+      if (nl) {
         break;
       }
       // lazy continuation: a paragraph line (not indented enough) continues the item's paragraph.
