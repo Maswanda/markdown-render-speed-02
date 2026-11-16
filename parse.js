@@ -1880,11 +1880,10 @@ function parseList(lines, start, refs, baseCol) {
     // separated by a blank line. A blank line only counts if the next
     // non-blank line starts a top-level block: indent 0 (paragraph, heading,
     // list, fence, etc.) or indent >= 4 (an indented code block). Blanks
-    // inside a nested block (indented 1-3, part of a nested list item)
-    // belong to that nested block and do not make THIS item loose. An
-    // indented (>= 4) block after a blank only counts when no nested list
-    // item precedes the blank in this item (otherwise the indented content
-    // belongs to that nested list).
+    // inside a nested block belong to that nested block and do not make
+    // THIS item loose. A line after a blank is NOT a new top-level block if
+    // it is a list item continuing a nested list that already started before
+    // the blank, or if it is indented content of a nested list item.
     let isLoose = false;
     for (let k = 0; k < subLines.length - 1; k++) {
       if (subLines[k] === '') {
@@ -1892,15 +1891,19 @@ function parseList(lines, start, refs, baseCol) {
         while (j < subLines.length && subLines[j] === '') j++;
         if (j < subLines.length) {
           const ind = fullLeadingCol(subLines[j]);
-          if (ind === 0) { isLoose = true; break; }
-          if (ind >= 4) {
-            // Check for a nested list item before this blank.
-            let hasNestedList = false;
-            for (let m = 0; m < k; m++) {
-              if (matchListItem(subLines[m])) { hasNestedList = true; break; }
-            }
-            if (!hasNestedList) { isLoose = true; break; }
+          // Is there a nested list item before this blank?
+          let hasNestedList = false;
+          for (let m = 0; m < k; m++) {
+            if (matchListItem(subLines[m])) { hasNestedList = true; break; }
           }
+          const nextIsListItem = matchListItem(subLines[j]) !== null;
+          if (ind === 0) {
+            // A list item at indent 0 that continues an already-started
+            // nested list is not a new top-level block.
+            if (nextIsListItem && hasNestedList) continue;
+            isLoose = true; break;
+          }
+          if (ind >= 4 && !hasNestedList) { isLoose = true; break; }
         }
       }
     }
