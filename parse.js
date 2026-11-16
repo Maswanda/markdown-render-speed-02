@@ -2068,6 +2068,11 @@ function parseList(lines, start, refs, baseCol) {
     // marker width + 1 space.
     const contentIndent = li.empty ? li.indent + li.width + 1 : li.contentStart;
     const itemLines = [];
+    // Indices of itemLines that are lazy continuations (indent below
+    // contentIndent): their leading spaces are paragraph text and must
+    // NOT be removed by the subLines dedent (doc-38/doc-06: "- foo\n bar"
+    // keeps the space: "foo\n bar").
+    const lazyIdx = new Set();
     // first line content
     if (li.contentStart < lines[i].length) {
       itemLines.push(' '.repeat(contentIndent) + lines[i].slice(li.contentStart));
@@ -2137,6 +2142,9 @@ function parseList(lines, start, refs, baseCol) {
         blankRun = 0;
         continue;
       }
+      // Lazy continuation: keep the line's leading spaces (paragraph
+      // text), so mark it to skip the subLines dedent.
+      lazyIdx.add(itemLines.length);
       itemLines.push(l);
       i++;
     }
@@ -2147,8 +2155,17 @@ function parseList(lines, start, refs, baseCol) {
     // their natural indentation. Let me re-derive: we stored itemLines as lines where
     // the content starts at column contentIndent. For the sub-parse, we should remove
     // contentIndent from each line.
-    const subLines = itemLines.map(l => {
+    const subLines = itemLines.map((l, idx) => {
       if (l === '') return '';
+      // Lazy continuation lines: indent < 4 keeps its leading spaces as
+      // paragraph text ("- foo\n bar" -> "foo\n bar"); indent >= 4 loses
+      // 4 spaces (cm-291: "  1.  A\n    B" -> "A\nB"); belonging lines
+      // get the full contentIndent removed.
+      if (lazyIdx.has(idx)) {
+        const ind = fullLeadingCol(l);
+        if (ind >= 4) return removeIndent(l, 4, base);
+        return l;
+      }
       return removeIndent(l, contentIndent, base);
     });
     // Remove trailing blank lines
