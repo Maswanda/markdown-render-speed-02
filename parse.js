@@ -618,10 +618,13 @@ function removeIndent(line, n, baseCol) {
       col += adv; i++;
     } else break;
   }
-  // If a tab sits exactly at the indent boundary AND we removed some indent,
-  // expand it to the next 4-col stop from its ORIGINAL column (base + col).
-  // When n=0 (nothing removed) the tab is content and stays a literal tab.
-  if (col > 0 && i < line.length && line[i] === '\t') {
+  // If a tab sits exactly at the indent boundary, expand it to the next
+  // 4-col stop from its ORIGINAL column (base + col). When we removed some
+  // indent (col > 0) the tab is at the boundary. When n=0 but base > 0
+  // (a nested container already removed columns), the tab is also at a
+  // boundary in original coordinates and expands from base. Only when
+  // base=0 and n=0 (top level, nothing removed) does the tab stay literal.
+  if (i < line.length && line[i] === '\t' && (col > 0 || base > 0)) {
     return ' '.repeat(4 - ((base + col) % 4)) + line.slice(i + 1);
   }
   return line.slice(i);
@@ -1609,7 +1612,7 @@ function parseBlocks(lines, refs, baseCol) {
           i++;
         }
       }
-      blocks.push({ type: 'blockquote', children: parseBlocks(qLines, refs, base + 2) });
+      blocks.push({ type: 'blockquote', children: parseBlocks(qLines, refs, base === 0 ? 2 : base) });
       continue;
     }
 
