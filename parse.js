@@ -2173,6 +2173,32 @@ function parseList(lines, start, refs, baseCol) {
         blankRun = 0;
         continue;
       }
+      // A lazy line immediately after a fence opener ends the item (the
+      // fence stays empty, doc-38: "  ```bash" then an indent-0 line).
+      // A lazy line after the fence already has content lines is code
+      // content (doc-02: "   ```css" with indented lines, then an
+      // indent-0 line inside the fence). So only break when the last
+      // non-blank itemLine is itself an unclosed fence opener.
+      let lastNonBlank = -1;
+      for (let q = itemLines.length - 1; q >= 0; q--) { if (itemLines[q] !== '') { lastNonBlank = q; break; } }
+      if (lastNonBlank >= 0) {
+        const fm = matchFence(itemLines[lastNonBlank]);
+        if (fm) {
+          // Is this fence already closed by a later line? It can't be:
+          // lastNonBlank IS the last non-blank line, so if it's a fence
+          // opener, no closer follows it yet. But it might be a closer
+          // for an earlier opener; check by scanning the fence state.
+          let inF = false, fCh = '', fLen = 0;
+          for (let q = 0; q <= lastNonBlank; q++) {
+            const f2 = matchFence(itemLines[q]);
+            if (f2) {
+              if (!inF) { inF = true; fCh = f2.fence; fLen = f2.len; }
+              else if (f2.fence === fCh && f2.len >= fLen) { inF = false; }
+            }
+          }
+          if (inF) break;
+        }
+      }
       // Lazy continuation: keep the line's leading spaces (paragraph
       // text), so mark it to skip the subLines dedent.
       lazyIdx.add(itemLines.length);
