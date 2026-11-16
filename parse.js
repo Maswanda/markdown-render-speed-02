@@ -1383,7 +1383,12 @@ function stripInlineFormatting(s) {
     if (ch === '\\' && i + 1 < n && isAsciiPunct(s[i + 1])) { out += s[i + 1]; i += 2; continue; }
     if (ch === '*' || ch === '_' || ch === '~') { i++; continue; }
     if (ch === '[') {
-      // link text: keep the label, drop the destination
+      // Only treat [..] as a link/image if it actually forms one
+      // (matching ] + a destination or a resolving reference). Otherwise
+      // the [ is literal text and we advance one char (the inner content
+      // is then processed normally, so [[foo](uri1)](uri2) yields
+      // [foo](uri2), not foo).
+      const isImg = i > 0 && s[i - 1] === '!' && out.endsWith('!');
       let depth = 0, j = i, end = -1;
       for (; j < n; j++) {
         if (s[j] === '\\' && j + 1 < n) { j++; continue; }
@@ -1391,18 +1396,28 @@ function stripInlineFormatting(s) {
         else if (s[j] === ']') { depth--; if (depth === 0) { end = j; break; } }
       }
       if (end !== -1) {
-        out += stripInlineFormatting(s.slice(i + 1, end));
         let k = end + 1;
+        let isLink = false;
         if (k < n && s[k] === '(') {
           const close = findLinkParen(s, k);
-          if (close !== -1) k = close + 1;
+          if (close !== -1) { k = close + 1; isLink = true; }
         } else if (k < n && s[k] === '[') {
           const ce = s.indexOf(']', k + 1);
-          if (ce !== -1) k = ce + 1;
+          if (ce !== -1) { k = ce + 1; isLink = true; }
         }
-        i = k; continue;
+        // A label containing a nested link cannot itself be a link.
+        if (isLink) {
+          const labelInner = s.slice(i + 1, end);
+          if (/(^|[^\!])\[[^\]]*\]\([^)]*\)/.test(labelInner)) isLink = false;
+        }
+        if (isLink) {
+          // If preceded by ! it was an image: drop the ! already emitted.
+          if (isImg) out = out.slice(0, -1);
+          out += stripInlineFormatting(s.slice(i + 1, end));
+          i = k; continue;
+        }
       }
-      i++; continue;
+      out += ch; i++; continue;
     }
     if (ch === '<') {
       // strip html tags
