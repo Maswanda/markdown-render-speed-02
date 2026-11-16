@@ -1104,14 +1104,40 @@ function parseInline(src, refs, inLink) {
       const closeIdx = findBracketEnd(openIdx);
       if (closeIdx !== -1) {
         const labelText = src.slice(openIdx + 1, closeIdx);
-        // A link label that itself contains a nested inline LINK (not image)
+        // A link label that itself contains a nested LINK (not image)
         // means the outer brackets are not a link (links cannot nest); let
         // the inner link be parsed when we reach it. A nested image
         // (![...](...)) does not block the outer link. This does not apply
         // to images: an image's alt text may contain link-like text.
-        if (!isImage && /(^|[^\!])\[[^\]]*\]\([^)]*\)/.test(labelText)) {
-          i = openIdx + 1;
-          continue;
+        // Nested links include inline [...](...), full reference [...][...],
+        // and shortcut [...] that resolves to a definition.
+        if (!isImage) {
+          let hasNestedLink = /(^|[^\!])\[[^\]]*\]\([^)]*\)/.test(labelText);
+          if (!hasNestedLink) {
+            // Check for a nested reference/shortcut link that resolves.
+            const re = /\[([^\]]+)\]/g;
+            let m;
+            while ((m = re.exec(labelText)) !== null) {
+              // Skip if preceded by ! (image).
+              if (m.index > 0 && labelText[m.index - 1] === '!') continue;
+              const innerLabel = m[1];
+              const innerKey = normalizeLabel(innerLabel);
+              if (refs[innerKey]) { hasNestedLink = true; break; }
+              // Full reference [text][label]: check the label after ].
+              const afterInner = m.index + m[0].length;
+              if (labelText[afterInner] === '[') {
+                const lblEnd = labelText.indexOf(']', afterInner + 1);
+                if (lblEnd !== -1) {
+                  const refKey = normalizeLabel(labelText.slice(afterInner + 1, lblEnd) || innerLabel);
+                  if (refs[refKey]) { hasNestedLink = true; break; }
+                }
+              }
+            }
+          }
+          if (hasNestedLink) {
+            i = openIdx + 1;
+            continue;
+          }
         }
         const after = closeIdx + 1;
         let link = null;
