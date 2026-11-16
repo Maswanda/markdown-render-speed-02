@@ -855,10 +855,13 @@ function matchTableDelim(line) {
 // We implement the CommonMark emphasis algorithm with a delimiter stack, and
 // marked's link/image/autolink rules.
 
-// A link label containing a code span whose content includes a backtick,
-// or an unmatched backtick, is not a link (marked's label regex cannot
-// match it). E.g. [x ``a`b`` y](z) and [x `a`b` y](z) stay literal, while
-// [x ``ab`` y](z) and [x `a` y](z) form links (doc-16, doc-20).
+// A link label containing a code span whose content includes a backtick
+// is not a link, UNLESS the code span is the last thing in the label
+// (nothing but whitespace after its closing backticks). E.g.
+// [x ``a`b`` y](z) stays literal, [x ``a`b``](z) forms a link, and
+// [x ``ab`` y](z) / [x `a` y](z) form links. (An unmatched backtick
+// alone does NOT block a link: [but `promise](z) forms.)
+// doc-16, doc-18, doc-20, doc-22, doc-23 (block); doc-05, doc-10 (allow).
 function labelHasBadCodeSpan(label) {
   let i = 0;
   while (i < label.length) {
@@ -877,8 +880,12 @@ function labelHasBadCodeSpan(label) {
       }
       m++;
     }
-    if (close === -1) return true; // unmatched backtick
-    if (label.slice(j, close).indexOf('`') !== -1) return true; // backtick in content
+    if (close === -1) { i = j; continue; } // unmatched backtick: skip it
+    if (label.slice(j, close).indexOf('`') !== -1) {
+      // Backtick in content: blocks only if text follows the code span.
+      const rest = label.slice(close + ticks);
+      if (rest.trim() !== '') return true;
+    }
     i = close + ticks;
   }
   return false;
@@ -1344,6 +1351,12 @@ function parseInline(src, refs, inLink) {
                 if (q1 !== -1 && q2 === -1) { hasNestedLink = true; break; }
               }
             }
+          }
+          // A code span in the label whose content contains a backtick
+          // invalidates the link (doc-16/18/20/22/23: [x ``a`b`` y](z)
+          // stays literal). An unmatched backtick alone does not.
+          if (!hasNestedLink && labelHasBadCodeSpan(labelText)) {
+            hasNestedLink = true;
           }
           if (hasNestedLink) {
             i = openIdx + 1;
