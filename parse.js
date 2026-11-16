@@ -1101,18 +1101,38 @@ function trimTrailingPunct(s) {
 // ranges so the caller can suppress emphasis delimiters inside them.
 function spuriousCodeSpanRanges(src, n) {
   const ranges = [];
-  // Collect links: {labelStart, labelEnd, unmatchedBt, codeSpanOpen}
+  // Collect links: {labelStart, labelEnd, unmatchedBt, unmatchedTicks, codeSpanOpen}
   const links = [];
+  // Standalone code-span openings outside link labels: {pos, ticks}
+  const standaloneOpens = [];
   let i = 0;
   while (i < n) {
-    if (src[i] !== '[') { i++; continue; }
+    if (src[i] !== '[') {
+      // A backtick run outside a link label: a code-span opening when a
+      // matching closer run follows later in the text.
+      if (src[i] === '`') {
+        let k = i;
+        while (k < n && src[k] === '`') k++;
+        const ticks = k - i;
+        let close = -1, m = k;
+        while (m < n) {
+          if (src.startsWith('`'.repeat(ticks), m)) { close = m; break; }
+          m++;
+        }
+        if (close !== -1) standaloneOpens.push({ pos: i, ticks });
+        i = k;
+        continue;
+      }
+      i++;
+      continue;
+    }
     const closeIdx = findBracketEnd(src, n, i);
     if (closeIdx === -1) { i++; continue; }
     const after = closeIdx + 1;
     const isLink = (after < n && src[after] === '(') || (after < n && src[after] === '[');
     if (!isLink) { i = closeIdx + 1; continue; }
     const labelStart = i + 1, labelEnd = closeIdx;
-    let unmatchedBt = -1, codeSpanOpen = -1;
+    let unmatchedBt = -1, unmatchedTicks = 0, codeSpanOpen = -1;
     let j = labelStart;
     while (j < labelEnd) {
       if (src[j] !== '`') { j++; continue; }
@@ -1126,25 +1146,53 @@ function spuriousCodeSpanRanges(src, n) {
         m++;
       }
       if (close === -1) {
-        if (unmatchedBt === -1) unmatchedBt = j;
+        if (unmatchedBt === -1) { unmatchedBt = j; unmatchedTicks = ticks; }
         j = k;
       } else {
         if (codeSpanOpen === -1) codeSpanOpen = j;
         j = close + ticks;
       }
     }
-    links.push({ unmatchedBt, codeSpanOpen });
+    links.push({ unmatchedBt, unmatchedTicks, codeSpanOpen });
     i = closeIdx + 1;
   }
   // An unmatched backtick in an earlier link + a code-span opening in a
   // later link => spurious code span from the unmatched backtick to the
-  // code-span opening. Emphasis inside it is suppressed.
+  // code-span opening. Emphasis inside it is suppressed. The opening may
+  // also be a standalone code span in the text (doc-09: an unmatched ``
+  // in a link label pairs with the `` opening a later `` a ` b `` span,
+  // swallowing the _..._ between them).
   for (let a = 0; a < links.length; a++) {
     if (links[a].unmatchedBt === -1) continue;
+    // First, a code-span opening in a later link label.
     for (let b = a + 1; b < links.length; b++) {
       if (links[b].codeSpanOpen !== -1) {
         ranges.push([links[a].unmatchedBt, links[b].codeSpanOpen]);
         break;
+      }
+    }
+    // Otherwise, the next standalone code-span opening after the
+    // unmatched backtick. Prefer one with the same tick count (doc-09:
+    // an unmatched `` pairs with the later `` opening, skipping a nearer
+    // single-` span); if none exists, take the next opening of any count
+    // (doc-28: an unmatched `` pairs with the next ` opening a `d` span,
+    // swallowing the __...__ between them).
+    if (ranges.length === 0 || ranges[ranges.length - 1][0] !== links[a].unmatchedBt) {
+      let found = false;
+      for (const o of standaloneOpens) {
+        if (o.pos > links[a].unmatchedBt && o.ticks === links[a].unmatchedTicks) {
+          ranges.push([links[a].unmatchedBt, o.pos]);
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        for (const o of standaloneOpens) {
+          if (o.pos > links[a].unmatchedBt) {
+            ranges.push([links[a].unmatchedBt, o.pos]);
+            break;
+          }
+        }
       }
     }
   }
@@ -2471,6 +2519,28 @@ function parseList(lines, start, refs, baseCol) {
     });
     // Remove trailing blank lines
     while (subLines.length > 0 && subLines[subLines.length - 1] === '') subLines.pop();
+    // Marked strips trailing whitespace from the last line of a list
+    // item's content (doc-28: "- foo bar   " renders "foo bar", while a
+    // top-level paragraph keeps the spaces). Interior lines keep theirs
+    // (2+ trailing spaces make a hard break). Do not strip inside a
+    // fenced code block or an indented code block, where trailing spaces
+    // are code content.
+    if (subLines.length > 0) {
+      let inF = null;
+      let lastIsCode = false;
+      for (let k = 0; k < subLines.length; k++) {
+        const fm = matchFence(subLines[k]);
+        if (inF) {
+          if (fm && fm.fence === inF.fence && fm.len >= inF.len) { inF = null; lastIsCode = false; }
+          else lastIsCode = true;
+        } else if (fm) { inF = fm; lastIsCode = false; }
+        else lastIsCode = false;
+      }
+      const lastLine = subLines[subLines.length - 1];
+      if (!lastIsCode && fullLeadingCol(lastLine) < 4) {
+        subLines[subLines.length - 1] = lastLine.replace(/[ \t]+$/, '');
+      }
+    }
     // Determine if this item is loose: it contains two top-level blocks
     // separated by a blank line. A blank line only counts if the next
     // non-blank line starts a top-level block: indent 0 (paragraph, heading,
