@@ -2125,11 +2125,14 @@ function parseList(lines, start, refs, baseCol) {
 }
 
 // Render blocks to HTML.
-function renderBlocks(blocks, refs) {
+function renderBlocks(blocks, refs, tight) {
   let html = '';
   for (const b of blocks) {
     if (b.type === 'paragraph') {
-      html += '<p>' + parseInline(b.text, refs, false) + '</p>\n';
+      // In a tight list, paragraphs have no <p> tags and no trailing
+      // newline (the next block follows immediately, or </li> does).
+      if (tight) html += parseInline(b.text, refs, false);
+      else html += '<p>' + parseInline(b.text, refs, false) + '</p>\n';
     } else if (b.type === 'heading') {
       html += '<h' + b.level + '>' + parseInline(b.text, refs, false) + '</h' + b.level + '>\n';
     } else if (b.type === 'code') {
@@ -2156,7 +2159,9 @@ function renderBlocks(blocks, refs) {
       h += '>\n';
       for (const it of b.items) {
         h += '<li>';
-        const inner = renderBlocks(it.children, refs);
+        // Tight lists render paragraphs without <p> tags (renderBlocks
+        // handles it via the tight flag); loose lists keep them.
+        const inner = renderBlocks(it.children, refs, !b.loose);
         const checkbox = '<input' + (it.task ? ' checked=""' : '') + ' disabled="" type="checkbox">';
         if (b.loose) {
           if (it.task !== null) {
@@ -2166,17 +2171,10 @@ function renderBlocks(blocks, refs) {
             h += inner;
           }
         } else {
-          // tight list: checkbox before the stripped paragraph text, with a space
+          // tight list: checkbox before the paragraph text, with a space.
+          // Paragraphs were already rendered bare (no <p> tags).
           if (it.task !== null) h += checkbox + ' ';
-          // Strip the <p>...</p> wrapping of the first paragraph. If the item
-          // is a single paragraph, strip it entirely; if followed by other
-          // blocks, strip the tags and the newline (the next block follows
-          // immediately, e.g. a nested list).
-          let stripped = inner.replace(/^<p>([\s\S]*?)<\/p>\n?$/, '$1');
-          if (stripped === inner) {
-            stripped = inner.replace(/^<p>([\s\S]*?)<\/p>\n/, '$1');
-          }
-          h += stripped;
+          h += inner;
         }
         h += '</li>\n';
       }
