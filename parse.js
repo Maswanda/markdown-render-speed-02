@@ -1090,6 +1090,65 @@ function trimTrailingPunct(s) {
 // Cheap pre-scan for a possible extended autolink at i: true when a ':'
 // or '@' appears within the next 40 chars (and before any whitespace or
 // angle bracket). Avoids a slice+regex on every alphabetic character.
+// Find ranges [start,end) that marked's masking treats as a code span
+// even though they are not one in the real parse: an UNMATCHED backtick
+// run in one link's label pairs with the opening backtick of a code span
+// in a LATER link's label, forming a spurious code span that swallows
+// any emphasis delimiters between them (doc-16/22/29 and others: the
+// *...* between the two links stays literal in marked). Returns the
+// ranges so the caller can suppress emphasis delimiters inside them.
+function spuriousCodeSpanRanges(src, n) {
+  const ranges = [];
+  // Collect links: {labelStart, labelEnd, unmatchedBt, codeSpanOpen}
+  const links = [];
+  let i = 0;
+  while (i < n) {
+    if (src[i] !== '[') { i++; continue; }
+    const closeIdx = findBracketEnd(src, n, i);
+    if (closeIdx === -1) { i++; continue; }
+    const after = closeIdx + 1;
+    const isLink = (after < n && src[after] === '(') || (after < n && src[after] === '[');
+    if (!isLink) { i = closeIdx + 1; continue; }
+    const labelStart = i + 1, labelEnd = closeIdx;
+    let unmatchedBt = -1, codeSpanOpen = -1;
+    let j = labelStart;
+    while (j < labelEnd) {
+      if (src[j] !== '`') { j++; continue; }
+      let k = j;
+      while (k < labelEnd && src[k] === '`') k++;
+      const ticks = k - j;
+      const closer = '`'.repeat(ticks);
+      let close = -1, m = k;
+      while (m < labelEnd) {
+        if (src.startsWith(closer, m)) { close = m; break; }
+        m++;
+      }
+      if (close === -1) {
+        if (unmatchedBt === -1) unmatchedBt = j;
+        j = k;
+      } else {
+        if (codeSpanOpen === -1) codeSpanOpen = j;
+        j = close + ticks;
+      }
+    }
+    links.push({ unmatchedBt, codeSpanOpen });
+    i = closeIdx + 1;
+  }
+  // An unmatched backtick in an earlier link + a code-span opening in a
+  // later link => spurious code span from the unmatched backtick to the
+  // code-span opening. Emphasis inside it is suppressed.
+  for (let a = 0; a < links.length; a++) {
+    if (links[a].unmatchedBt === -1) continue;
+    for (let b = a + 1; b < links.length; b++) {
+      if (links[b].codeSpanOpen !== -1) {
+        ranges.push([links[a].unmatchedBt, links[b].codeSpanOpen]);
+        break;
+      }
+    }
+  }
+  return ranges;
+}
+
 // Parse inline content to HTML. Returns the HTML string.
 // `inLink` is true when this text is inside a link label (links cannot nest).
 // Find the matching ] for a [ starting at `from`, handling nested brackets
@@ -1152,7 +1211,10 @@ function parseInline(src, refs, inLink) {
   // Ranges [start,end) inside which emphasis delimiters stay literal:
   // the label of a link rejected because a code span in it contains a
   // backtick (doc-16/20/23: [at _node `a`b`_](...) keeps the _ literal).
-  const noEmph = [];
+  // Plus spurious code spans: an unmatched backtick in one link's label
+  // pairing with a code-span opening in a later link's label (doc-16/22/
+  // 29: the *...* between the two links stays literal in marked).
+  const noEmph = spuriousCodeSpanRanges(src, n);
   let i = 0;
   let textStart = 0;
 
