@@ -1039,6 +1039,8 @@ function parseInline(src, refs, inLink) {
         flushText(i);
         out.push({ t: 'br' });
         i += 2;
+        // After a hard break, leading spaces/tabs on the next line are stripped.
+        while (i < n && (src[i] === ' ' || src[i] === '\t')) i++;
         textStart = i;
         continue;
       }
@@ -1206,6 +1208,8 @@ function parseInline(src, refs, inLink) {
         flushText(i - spaces);
         out.push({ t: 'br' });
         i++;
+        // After a hard break, leading spaces/tabs on the next line are stripped.
+        while (i < n && (src[i] === ' ' || src[i] === '\t')) i++;
         textStart = i;
         continue;
       }
