@@ -1785,6 +1785,16 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
           // "> \tindented" in a fence should give 2 spaces, not 4).
           let s = l.slice(m);
           if (s[0] === '\t') s = ' '.repeat(4 - (m % 4)) + s.slice(1);
+          // A > line whose content is only whitespace (e.g. ">  " -> " ")
+          // is paragraph text, not a blank line, when a paragraph is in
+          // progress (cm-241: "> foo\n>  " gives <p>foo\n </p>). Append
+          // it to the previous qLine so the inner parse keeps the space.
+          if (s.length > 0 && isBlank(s) && qLines.length > 0 && qLines[qLines.length - 1] !== '') {
+            qLines[qLines.length - 1] += '\n' + s;
+            prevWasLazy = false;
+            i++;
+            continue;
+          }
           qLines.push(s);
           prevWasLazy = false;
           i++;
