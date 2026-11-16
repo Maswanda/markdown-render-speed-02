@@ -939,6 +939,11 @@ function parseExtendedAutolink(src, i, allowUnderscore) {
   // scheme: (e.g. mailto:, xmpp:) followed by non-space text
   const scm = src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]+/);
   if (scm) {
+    // If the raw address ends with - or _ (e.g. mailto:a.b@a.b-), it is
+    // not an autolink at all. Check the raw match, before trimming.
+    const rawAfter = scm[0].slice(scm[0].indexOf(':') + 1);
+    if (rawAfter.endsWith('-')) return null;
+    if (rawAfter.endsWith('_') && !allowUnderscore) return null;
     let text = trimTrailingPunct(scm[0]);
     // The trimmed text must still contain a colon (the scheme separator).
     // The part after the scheme must contain a dot (domain) or be an email,
