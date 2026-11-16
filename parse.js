@@ -302,6 +302,9 @@ function parseLinkDef(lines, i, refs) {
   // labelRaw spans scanStr[p+1 .. labelEnd]; map back to lines if it crossed
   labelText = scanStr.slice(p + 1, labelEnd);
   if (labelText.length === 0) return null;
+  // A link reference label cannot contain unescaped brackets (marked
+  // rejects labels like [a[b]] or [[foo]] as definitions).
+  if (/[\[\]]/.test(labelText.replace(/\\[\[\]]/g, ''))) return null;
   const labelRaw = labelText;
   // Determine which line the label ended on and the position of ':' after it.
   let k;
@@ -1186,6 +1189,22 @@ function parseInline(src, refs, inLink) {
                 if (lblEnd !== -1) {
                   const refKey = normalizeLabel(labelText.slice(afterInner + 1, lblEnd) || innerLabel);
                   if (refs[refKey]) { hasNestedLink = true; break; }
+                }
+              }
+            }
+          }
+          // A <...> autolink in the label whose closing > lies beyond the
+          // label's ] swallows the ](dest), so the outer link cannot form
+          // (e.g. [foo<https://x/?search=](uri)>).
+          if (!hasNestedLink) {
+            const ltIdx = labelText.indexOf('<');
+            if (ltIdx !== -1) {
+              const absLt = openIdx + 1 + ltIdx;
+              const gtIdx = src.indexOf('>', absLt + 1);
+              if (gtIdx !== -1 && gtIdx > closeIdx) {
+                const inner = src.slice(absLt + 1, gtIdx);
+                if (/^[A-Za-z][A-Za-z0-9+.-]{1,31}:/.test(inner) || /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/.test(inner)) {
+                  hasNestedLink = true;
                 }
               }
             }
