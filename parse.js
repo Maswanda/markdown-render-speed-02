@@ -986,28 +986,20 @@ function parseExtendedAutolink(src, i, allowUnderscore) {
   return null;
 }
 
-// Trim trailing punctuation (.,;:!? and unbalanced ) ) from an autolink candidate.
-// Also trim trailing _ * ~ which may close emphasis, and a trailing
-// entity-like &xxx; (e.g. &hl; is not part of the URL). The entity check
-// runs first, before the ';' is consumed as punctuation.
+// Trim trailing punctuation from an autolink candidate, using marked's
+// own _backpedal regex (applied until it stabilises). A run of trailing
+// punctuation at the very end is dropped; a balanced (...) group is kept
+// as a unit; a ')' in the middle (followed by more URL) is kept; a
+// trailing '&name;' entity is not part of the URL. This matches marked
+// on cases a simple paren-count gets wrong (doc-36:
+// https://a.com/less)](https://b.com/c) keeps its final ')', while
+// https://a.com/x(y)) drops one).
+const BACKPEDAL = /(?:[^?!.,:;*_'\"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'\"~)]+(?!$))+/;
 function trimTrailingPunct(s) {
-  // A trailing &name; or &#num; entity is not part of the link.
-  let out = s;
-  const em = out.match(/&[A-Za-z0-9#]+;$/);
-  if (em) out = out.slice(0, out.length - em[0].length);
-  let end = out.length;
-  while (end > 0) {
-    const ch = out[end - 1];
-    if (ch === '.' || ch === ',' || ch === ';' || ch === ':' || ch === '!' || ch === '?' || ch === "'" || ch === '_' || ch === '*' || ch === '~') { end--; continue; }
-    if (ch === ')') {
-      // keep only if balanced
-      let open = 0, close = 0;
-      for (let i = 0; i < end; i++) { if (out[i] === '(') open++; else if (out[i] === ')') close++; }
-      if (close > open) { end--; continue; }
-    }
-    break;
-  }
-  return out.slice(0, end);
+  let prev = s;
+  let cur = BACKPEDAL.exec(prev)?.[0] ?? '';
+  while (cur !== prev) { prev = cur; cur = BACKPEDAL.exec(prev)?.[0] ?? ''; }
+  return cur;
 }
 
 // Cheap pre-scan for a possible extended autolink at i: true when a ':'
