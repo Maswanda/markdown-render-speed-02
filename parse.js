@@ -713,8 +713,9 @@ function htmlBlockType(line) {
   m = rest.match(/^<\/?([A-Za-z][A-Za-z0-9-]*)/);
   if (m && BLOCK_TAGS.has(m[1].toLowerCase())) return 6;
   // type 7: any other tag, but only when followed by whitespace or end of line
-  // (a tag followed by text is inline HTML, not an HTML block).
-  m = rest.match(/^<\/?[A-Za-z][A-Za-z0-9-]*(\s[^>]*)?\/?>/);
+  // (a tag followed by text is inline HTML, not an HTML block). The tag must
+  // be a valid open tag (strict attributes) or a close tag (no attributes).
+  m = rest.match(/^<[A-Za-z][A-Za-z0-9-]*(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>/);
   if (m && /^[\s]*$/.test(rest.slice(m[0].length))) return 7;
   m = rest.match(/^<\/[A-Za-z][A-Za-z0-9-]*\s*>/);
   if (m && /^[\s]*$/.test(rest.slice(m[0].length))) return 7;
@@ -1311,9 +1312,11 @@ function matchHtmlTag(src, i) {
     if (e !== -1) return i + e + 1;
     return -1;
   }
-  // open/close tag
-  const m = rest.match(/^<\/?[A-Za-z][A-Za-z0-9-]*(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>/);
-  if (m) return i + m[0].length;
+  // open tag (with optional attributes) or close tag (no attributes allowed)
+  const mOpen = rest.match(/^<[A-Za-z][A-Za-z0-9-]*(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>/);
+  if (mOpen) return i + mOpen[0].length;
+  const mClose = rest.match(/^<\/[A-Za-z][A-Za-z0-9-]*\s*>/);
+  if (mClose) return i + mClose[0].length;
   return -1;
 }
 
