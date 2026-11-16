@@ -1433,6 +1433,10 @@ function resolveEmphasis(out, delims) {
         const op = delims[oj];
         if (!op.canOpen || !op.node.active) continue;
         if (op.node.ch !== closer.node.ch) continue;
+        // An opener whose slot was consumed inside an already-formed
+        // emphasis cannot pair across that emphasis boundary.
+        const opSlot = out[op.outIndex];
+        if (opSlot && opSlot.t === 'consumed') continue;
         // Rule of 3 (CommonMark): applies only when one of the delimiters
         // can both open and close emphasis. Then the sum of the counts must
         // not be a multiple of 3 unless both counts are multiples of 3.
@@ -1551,8 +1555,9 @@ function renderInline(nodes, refs) {
 
 // Parse the source into a list of blocks. Each block: {type, ...}.
 // `refs` is filled with link reference definitions.
-function parseBlocks(lines, refs, baseCol) {
+function parseBlocks(lines, refs, baseCol, inListItem) {
   const base = baseCol || 0;
+  const inList = !!inListItem;
   const blocks = [];
   let i = 0;
   const n = lines.length;
@@ -1650,7 +1655,7 @@ function parseBlocks(lines, refs, baseCol) {
           i++;
         }
       }
-      blocks.push({ type: 'blockquote', children: parseBlocks(qLines, refs, base === 0 ? 2 : base) });
+      blocks.push({ type: 'blockquote', children: parseBlocks(qLines, refs, base === 0 ? 2 : base, inList) });
       continue;
     }
 
@@ -1960,7 +1965,7 @@ function parseList(lines, start, refs, baseCol) {
         subLines[0] = subLines[0].slice(m[0].length);
       }
     }
-    const children = parseBlocks(subLines, refs, base + contentIndent);
+    const children = parseBlocks(subLines, refs, base + contentIndent, true);
     items.push({ task, children });
   }
   // A list is loose if any item is loose OR there are blank lines between items.
