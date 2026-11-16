@@ -2121,6 +2121,20 @@ function parseList(lines, start, refs, baseCol) {
       if (isThematicBreak(l) || matchAtx(l) !== null || matchFence(l) !== null || htmlBlockType(l) !== 0) {
         break;
       }
+      // A lazy line that looks like a list item (marker at its indent)
+      // but is indented less than this item's content indent is paragraph
+      // text, not a nested list (cm-312: "    - e" under "   - d" is
+      // text "- e" in d, not a sublist). Append it to the previous
+      // itemLine (stripped) so the sub-parse sees it as paragraph text,
+      // not a list-item block. (matchListItem returns null past indent 3,
+      // so this line reaches here as a lazy continuation.)
+      const stripped = l.replace(/^[ \t]+/, '');
+      if (/^([-*+]|\d{1,9}[.)])[ \t]/.test(stripped) && itemLines.length > 0 && itemLines[itemLines.length - 1] !== '') {
+        itemLines[itemLines.length - 1] += '\n' + stripped;
+        i++;
+        blankRun = 0;
+        continue;
+      }
       itemLines.push(l);
       i++;
     }
