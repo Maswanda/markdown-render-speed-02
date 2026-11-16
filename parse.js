@@ -87,7 +87,15 @@ function isWhitespace(ch) { return ch === ' ' || ch === '\t' || ch === '\n' || c
 
 // Strict escape: encode every &, <, >, ", '. Used for code blocks and code
 // spans, where entities are NOT recognised (marked's escape with encode=true).
+const NEEDS_ESCAPE = /[&<>"']/;
+// Sticky regexes for the GFM extended-autolink pre-check (avoids
+// src.slice(i) allocations). lastIndex is set to i before each test.
+const SCHEME_SLASH_RE = /[A-Za-z][A-Za-z0-9+.-]{1,31}:\/\//y;
+const SCHEME_COLON_RE = /[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]+/y;
+const EMAIL_RE = /[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/y;
 function escapeHtmlStrict(s) {
+  // Fast path: no escapable char at all.
+  if (!NEEDS_ESCAPE.test(s)) return s;
   let out = '';
   let start = 0;
   for (let i = 0; i < s.length; i++) {
@@ -108,6 +116,8 @@ function escapeHtmlStrict(s) {
 // literally, &#123; / &#xAB; are decoded to the character (0, >0x10FFFF and
 // surrogates become U+FFFD; 38 becomes &amp;). A bare & is escaped.
 function escapeHtml(s) {
+  // Fast path: no escapable char at all (and no & to start an entity).
+  if (!NEEDS_ESCAPE.test(s)) return s;
   let out = '';
   let start = 0;
   for (let i = 0; i < s.length; i++) {
@@ -1089,6 +1099,42 @@ function couldBeAutolink(src, i) {
 
 // Parse inline content to HTML. Returns the HTML string.
 // `inLink` is true when this text is inside a link label (links cannot nest).
+// Find the matching ] for a [ starting at `from`, handling nested brackets
+// and code spans. Module-level (not a per-call closure) for speed.
+function findBracketEnd(src, n, from) {
+  let depth = 0;
+  for (let j = from; j < n; j++) {
+    const ch = src[j];
+    if (ch === '\\' && j + 1 < n) { j++; continue; }
+    if (ch === '`') {
+      // Skip a code span only when its closer is on the SAME line as the
+      // opener. A backtick run whose closer is on a later line does not
+      // hide a ] on this line (the label ends at that ]).
+      let k = j;
+      while (k < n && src[k] === '`') k++;
+      const ticks = k - j;
+      // Find closer on the same line only.
+      let close = -1;
+      let m = k;
+      while (m < n && src[m] !== '\n') {
+        if (src.startsWith('`'.repeat(ticks), m)) {
+          const beforeOk = m === 0 || src[m - 1] !== '`';
+          const afterOk = m + ticks >= n || src[m + ticks] !== '`';
+          if (beforeOk && afterOk) { close = m; break; }
+        }
+        m++;
+      }
+      if (close !== -1) {
+        j = close + ticks - 1;
+      }
+      continue;
+    }
+    if (ch === '[') depth++;
+    else if (ch === ']') { depth--; if (depth === 0) return j; }
+  }
+  return -1;
+}
+
 function parseInline(src, refs, inLink) {
   const n = src.length;
   // Fast path: no special characters at all -> just escape and return.
@@ -1121,41 +1167,6 @@ function parseInline(src, refs, inLink) {
     if (to > textStart) {
       out.push({ t: 'text', s: src.slice(textStart, to) });
     }
-  }
-
-  // Find the matching ] for a [ starting at i, handling nested brackets and code spans.
-  function findBracketEnd(from) {
-    let depth = 0;
-    for (let j = from; j < n; j++) {
-      const ch = src[j];
-      if (ch === '\\' && j + 1 < n) { j++; continue; }
-      if (ch === '`') {
-        // Skip a code span only when its closer is on the SAME line as the
-        // opener. A backtick run whose closer is on a later line does not
-        // hide a ] on this line (the label ends at that ]).
-        let k = j;
-        while (k < n && src[k] === '`') k++;
-        const ticks = k - j;
-        // Find closer on the same line only.
-        let close = -1;
-        let m = k;
-        while (m < n && src[m] !== '\n') {
-          if (src.startsWith('`'.repeat(ticks), m)) {
-            const beforeOk = m === 0 || src[m - 1] !== '`';
-            const afterOk = m + ticks >= n || src[m + ticks] !== '`';
-            if (beforeOk && afterOk) { close = m; break; }
-          }
-          m++;
-        }
-        if (close !== -1) {
-          j = close + ticks - 1;
-        }
-        continue;
-      }
-      if (ch === '[') depth++;
-      else if (ch === ']') { depth--; if (depth === 0) return j; }
-    }
-    return -1;
   }
 
   while (i < n) {
@@ -1266,7 +1277,7 @@ function parseInline(src, refs, inLink) {
     if (ch === '[' || (ch === '!' && i + 1 < n && src[i + 1] === '[')) {
       const isImage = ch === '!';
       const openIdx = isImage ? i + 1 : i;
-      const closeIdx = findBracketEnd(openIdx);
+      const closeIdx = findBracketEnd(src, n, openIdx);
       if (closeIdx !== -1) {
         const labelText = src.slice(openIdx + 1, closeIdx);
         // A link label that itself contains a nested LINK (not image)
@@ -1466,7 +1477,7 @@ function parseInline(src, refs, inLink) {
     // Links cannot nest: no autolink inside a link label.
     // Cheap pre-scan: an autolink needs a ':' or '@' within ~40 chars;
     // skip the expensive slice+regex when there is none.
-    if (!inLink && ((ch === 'w' && src.startsWith('www.', i)) || (isAlpha(ch) && couldBeAutolink(src, i) && (src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:\/\//) || src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]+/) || src.slice(i).match(/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/))))) {
+    if (!inLink && ((ch === 'w' && src.startsWith('www.', i)) || (isAlpha(ch) && couldBeAutolink(src, i) && ((SCHEME_SLASH_RE.lastIndex = i, SCHEME_SLASH_RE.test(src)) || (SCHEME_COLON_RE.lastIndex = i, SCHEME_COLON_RE.test(src)) || (EMAIL_RE.lastIndex = i, EMAIL_RE.test(src)))))) {
       // Only if not preceded by a word char or / or other link-ish char
       const prev = i === 0 ? '' : src[i - 1];
       if (i === 0 || isWhitespace(prev) || prev === '*' || prev === '_' || prev === '~' || prev === '(' || prev === '[' || prev === '>' || prev === '<' || prev === '"' || prev === "'") {
