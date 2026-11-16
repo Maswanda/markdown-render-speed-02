@@ -909,10 +909,13 @@ function parseExtendedAutolink(src, i) {
   // email: user@host.tld
   const em = src.slice(i).match(/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/);
   if (em) {
+    // If the match is immediately followed by - or _, the domain would
+    // end with it, so the whole thing is not an autolink.
+    const afterIdx = i + em[0].length;
+    if (afterIdx < src.length && (src[afterIdx] === '-' || src[afterIdx] === '_')) return null;
     let text = trimTrailingPunct(em[0]);
-    // must have a dot and valid domain; domain must not end with - or _
+    // must have a dot and valid domain
     if (text.indexOf('.') === -1) return null;
-    if (text.endsWith('-') || text.endsWith('_')) return null;
     return { href: 'mailto:' + text, text, end: i + text.length };
   }
   return null;
@@ -1053,6 +1056,11 @@ function parseInline(src, refs, inLink) {
       let j = i;
       while (j < n && src[j] === ch) j++;
       const count = j - i;
+      // A run of 3+ tildes is not a strikethrough delimiter (literal text).
+      if (ch === '~' && count > 2) {
+        i = j;
+        continue;
+      }
       // Determine flanking per CommonMark
       const before = i === 0 ? '\n' : src[i - 1];
       const after = j >= n ? '\n' : src[j];
@@ -1629,10 +1637,14 @@ function parseBlocks(lines, refs) {
       if (paraLines.length === 1 && lineHasPipe(paraLines[0])) {
         const aligns = matchTableDelim(l);
         if (aligns) {
-          tableDelim = aligns;
-          tableHead = paraLines[0];
-          i++;
-          break;
+          // The delimiter must have the same number of cells as the header.
+          const headCount = splitTableRow(paraLines[0]).length;
+          if (aligns.length === headCount) {
+            tableDelim = aligns;
+            tableHead = paraLines[0];
+            i++;
+            break;
+          }
         }
       }
       // interrupt: check if this line starts a new block that can interrupt a paragraph.
@@ -1684,6 +1696,8 @@ function parseBlocks(lines, refs) {
       const rows = [];
       while (i < n && !isBlank(lines[i])) {
         const l = lines[i];
+        // A table row ends at a line that starts a new block.
+        if (matchBlockquote(l) !== -1 || matchAtx(l) !== null || matchFence(l) !== null || isThematicBreak(l) || matchListItem(l) !== null) break;
         // A row without pipes is a single-cell row (remaining cells empty).
         rows.push(splitTableRow(l));
         i++;
