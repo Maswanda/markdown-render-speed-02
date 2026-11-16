@@ -917,6 +917,12 @@ function parseExtendedAutolink(src, i, allowUnderscore) {
     if (colonIdx !== -1) {
       const after = text.slice(colonIdx + 1);
       if ((after.indexOf('.') !== -1 || after.indexOf('@') !== -1) && /[A-Za-z0-9]/.test(after)) {
+        // A trailing slash after the address is not part of the link.
+        if (text.endsWith('/')) text = text.slice(0, -1);
+        // scheme:email/segment/more — only the first path segment belongs
+        // to the link (e.g. xmpp:foo@bar.baz/txt/bin -> .../txt).
+        const m2 = text.match(/^([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s/]+@[^\s/]+\/[^\s/]+)\//);
+        if (m2) text = m2[1];
         return { href: text, text, end: i + text.length };
       }
     }
@@ -931,6 +937,9 @@ function parseExtendedAutolink(src, i, allowUnderscore) {
     const afterIdx = i + em[0].length;
     if (afterIdx < src.length && src[afterIdx] === '-') return null;
     if (afterIdx < src.length && src[afterIdx] === '_' && !allowUnderscore) return null;
+    // If the match itself ends with - or _, it is not an autolink either.
+    if (em[0].endsWith('-')) return null;
+    if (em[0].endsWith('_') && !allowUnderscore) return null;
     let text = trimTrailingPunct(em[0]);
     // must have a dot and valid domain
     if (text.indexOf('.') === -1) return null;
@@ -940,21 +949,27 @@ function parseExtendedAutolink(src, i, allowUnderscore) {
 }
 
 // Trim trailing punctuation (.,;:!? and unbalanced ) ) from an autolink candidate.
-// Also trim trailing _ * ~ which may close emphasis.
+// Also trim trailing _ * ~ which may close emphasis, and a trailing
+// entity-like &xxx; (e.g. &hl; is not part of the URL). The entity check
+// runs first, before the ';' is consumed as punctuation.
 function trimTrailingPunct(s) {
-  let end = s.length;
+  // A trailing &name; or &#num; entity is not part of the link.
+  let out = s;
+  const em = out.match(/&[A-Za-z0-9#]+;$/);
+  if (em) out = out.slice(0, out.length - em[0].length);
+  let end = out.length;
   while (end > 0) {
-    const ch = s[end - 1];
+    const ch = out[end - 1];
     if (ch === '.' || ch === ',' || ch === ';' || ch === ':' || ch === '!' || ch === '?' || ch === "'" || ch === '_' || ch === '*' || ch === '~') { end--; continue; }
     if (ch === ')') {
       // keep only if balanced
       let open = 0, close = 0;
-      for (let i = 0; i < end; i++) { if (s[i] === '(') open++; else if (s[i] === ')') close++; }
+      for (let i = 0; i < end; i++) { if (out[i] === '(') open++; else if (out[i] === ')') close++; }
       if (close > open) { end--; continue; }
     }
     break;
   }
-  return s.slice(0, end);
+  return out.slice(0, end);
 }
 
 // Parse inline content to HTML. Returns the HTML string.
