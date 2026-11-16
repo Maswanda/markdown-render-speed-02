@@ -2003,6 +2003,10 @@ function parseList(lines, start, refs, baseCol) {
     while (i < lines.length) {
       const l = lines[i];
       if (isBlank(l)) {
+        // An empty item (no content yet) ends at a blank line: the blank
+        // terminates it, and the following indented line is a new block
+        // (cm-280: "-\n\n  foo" -> empty <li> then <p>  foo</p>).
+        if (itemLines.every(x => x === '')) break;
         // look ahead: if next non-blank line is a list item at same level or belongs to this item, include
         let j = i + 1;
         while (j < lines.length && isBlank(lines[j])) j++;
@@ -2068,8 +2072,11 @@ function parseList(lines, start, refs, baseCol) {
     // the blank, or if it is indented content of a nested list item.
     let isLoose = false;
     // Track fenced code: blanks inside a fence do not make the item loose.
+    // A leading blank at index 0 is the item's own empty first line (the
+    // marker had no content on its line, e.g. "-   \n  foo") — not a
+    // separator between blocks — so it never makes the item loose.
     let inFence = null;
-    for (let k = 0; k < subLines.length - 1; k++) {
+    for (let k = 1; k < subLines.length - 1; k++) {
       const fl = subLines[k];
       if (inFence) {
         const fm = matchFence(fl);
