@@ -1740,9 +1740,11 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
         i++;
       }
       if (i < n) i++; // skip closing fence
-      // strip trailing blank lines
-      while (codeLines.length > 0 && codeLines[codeLines.length - 1] === '') codeLines.pop();
-      blocks.push({ type: 'fence', lang: fence.info, text: codeLines.join('\n') + (codeLines.length ? '\n' : '') });
+      // Strip trailing blank lines, but keep one newline per blank line
+      // beyond the first (marked: "b\n\n\n" in a fence -> "b\n\n").
+      let trailingBlanks = 0;
+      while (codeLines.length > 0 && codeLines[codeLines.length - 1] === '') { codeLines.pop(); trailingBlanks++; }
+      blocks.push({ type: 'fence', lang: fence.info, text: codeLines.join('\n') + (codeLines.length ? '\n' : '') + (trailingBlanks > 1 ? '\n'.repeat(trailingBlanks - 1) : '') });
       continue;
     }
 
@@ -2065,8 +2067,18 @@ function parseList(lines, start, refs, baseCol) {
     // it is a list item continuing a nested list that already started before
     // the blank, or if it is indented content of a nested list item.
     let isLoose = false;
+    // Track fenced code: blanks inside a fence do not make the item loose.
+    let inFence = null;
     for (let k = 0; k < subLines.length - 1; k++) {
-      if (subLines[k] === '') {
+      const fl = subLines[k];
+      if (inFence) {
+        const fm = matchFence(fl);
+        if (fm && fm.ch === inFence.ch && fm.len >= inFence.len) inFence = null;
+        continue;
+      }
+      const fo = matchFence(fl);
+      if (fo) { inFence = fo; continue; }
+      if (fl === '') {
         let j = k + 1;
         while (j < subLines.length && subLines[j] === '') j++;
         if (j < subLines.length) {
