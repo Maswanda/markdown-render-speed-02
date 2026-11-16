@@ -1525,6 +1525,8 @@ function parseBlocks(lines, refs, baseCol) {
         i++;
       }
       if (i < n) i++; // skip closing fence
+      // strip trailing blank lines
+      while (codeLines.length > 0 && codeLines[codeLines.length - 1] === '') codeLines.pop();
       blocks.push({ type: 'fence', lang: fence.info, text: codeLines.join('\n') + (codeLines.length ? '\n' : '') });
       continue;
     }
