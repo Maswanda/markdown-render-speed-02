@@ -601,14 +601,16 @@ function isIndentedCode(line) {
 }
 
 // Remove up to `n` leading spaces (expanding tabs) from a line.
-function removeIndent(line, n) {
+function removeIndent(line, n, baseCol) {
+  // baseCol = columns already removed by outer containers (for tab expansion).
+  const base = baseCol || 0;
   let col = 0;
   let i = 0;
   while (i < line.length && col < n) {
     const ch = line[i];
     if (ch === ' ') { col++; i++; }
     else if (ch === '\t') {
-      const adv = 4 - (col % 4);
+      const adv = 4 - ((base + col) % 4);
       if (col + adv > n) {
         // partial tab: replace with spaces
         return ' '.repeat(n - col) + line.slice(i + 1);
@@ -617,10 +619,10 @@ function removeIndent(line, n) {
     } else break;
   }
   // If a tab sits exactly at the indent boundary AND we removed some indent,
-  // expand it to the next 4-col stop from its column. When n=0 (nothing
-  // removed) the tab is content and stays a literal tab.
+  // expand it to the next 4-col stop from its ORIGINAL column (base + col).
+  // When n=0 (nothing removed) the tab is content and stays a literal tab.
   if (col > 0 && i < line.length && line[i] === '\t') {
-    return ' '.repeat(4 - (col % 4)) + line.slice(i + 1);
+    return ' '.repeat(4 - ((base + col) % 4)) + line.slice(i + 1);
   }
   return line.slice(i);
 }
@@ -1464,7 +1466,8 @@ function renderInline(nodes, refs) {
 
 // Parse the source into a list of blocks. Each block: {type, ...}.
 // `refs` is filled with link reference definitions.
-function parseBlocks(lines, refs) {
+function parseBlocks(lines, refs, baseCol) {
+  const base = baseCol || 0;
   const blocks = [];
   let i = 0;
   const n = lines.length;
@@ -1485,14 +1488,14 @@ function parseBlocks(lines, refs) {
           while (j < n && isBlank(lines[j])) j++;
           if (j < n && isIndentedCode(lines[j])) {
             // blank line inside code: strip up to 4 leading spaces (keep the rest)
-            codeLines.push(removeIndent(l, 4));
+            codeLines.push(removeIndent(l, 4, base));
             i++;
             continue;
           }
           break;
         }
         if (!isIndentedCode(l)) break;
-        codeLines.push(removeIndent(l, 4));
+        codeLines.push(removeIndent(l, 4, base));
         i++;
       }
       // strip trailing blank lines
@@ -1508,7 +1511,7 @@ function parseBlocks(lines, refs) {
       i++;
       while (i < n && !isFenceEnd(lines[i], fence.fence, fence.len)) {
         // strip up to the fence's indent from each content line
-        codeLines.push(removeIndent(lines[i], fence.indent));
+        codeLines.push(removeIndent(lines[i], fence.indent, base));
         i++;
       }
       if (i < n) i++; // skip closing fence
@@ -1560,14 +1563,14 @@ function parseBlocks(lines, refs) {
           i++;
         }
       }
-      blocks.push({ type: 'blockquote', children: parseBlocks(qLines, refs) });
+      blocks.push({ type: 'blockquote', children: parseBlocks(qLines, refs, base + 2) });
       continue;
     }
 
     // list
     const li = matchListItem(line);
     if (li) {
-      const { items, next } = parseList(lines, i, refs);
+      const { items, next } = parseList(lines, i, refs, base);
       blocks.push(items);
       i = next;
       continue;
@@ -1726,7 +1729,8 @@ function tryLinkDef(lines, i, refs) {
 }
 
 // Parse a list starting at lines[i]. Returns {items: block, next}.
-function parseList(lines, start, refs) {
+function parseList(lines, start, refs, baseCol) {
+  const base = baseCol || 0;
   const first = matchListItem(lines[start]);
   const ordered = first.ordered;
   const delim = first.delim;
@@ -1829,7 +1833,7 @@ function parseList(lines, start, refs) {
     // contentIndent from each line.
     const subLines = itemLines.map(l => {
       if (l === '') return '';
-      return removeIndent(l, contentIndent);
+      return removeIndent(l, contentIndent, base);
     });
     // Remove trailing blank lines
     while (subLines.length > 0 && subLines[subLines.length - 1] === '') subLines.pop();
@@ -1842,7 +1846,7 @@ function parseList(lines, start, refs) {
         subLines[0] = subLines[0].slice(m[0].length);
       }
     }
-    const children = parseBlocks(subLines, refs);
+    const children = parseBlocks(subLines, refs, base + contentIndent);
     items.push({ task, children });
   }
   // A list is loose if any item is loose OR there are blank lines between items.
