@@ -1540,10 +1540,11 @@ function parseBlocks(lines, refs) {
           // heading, etc. — if the quote so far ends inside an unclosed fence,
           // the quote ends here. It also must not continue after a blank line
           // inside the quote (the paragraph ended), nor be a block start
-          // (thematic break, ATX, fence, HTML block, setext underline).
+          // (thematic break, ATX, fence, HTML block, setext underline, list
+          // item, indented code).
           if (endsInFence(qLines)) break;
           if (qLines.length > 0 && qLines[qLines.length - 1] === '') break;
-          if (isThematicBreak(l) || matchAtx(l) !== null || matchFence(l) !== null || htmlBlockType(l) !== 0 || matchSetext(l) !== 0) break;
+          if (isThematicBreak(l) || matchAtx(l) !== null || matchFence(l) !== null || htmlBlockType(l) !== 0 || matchSetext(l) !== 0 || matchListItem(l) !== null || isIndentedCode(l)) break;
           qLines.push(l);
           i++;
         }
