@@ -991,12 +991,26 @@ function parseInline(src, refs, inLink) {
       const ch = src[j];
       if (ch === '\\' && j + 1 < n) { j++; continue; }
       if (ch === '`') {
-        // skip code span
+        // Skip a code span only when its closer is on the SAME line as the
+        // opener. A backtick run whose closer is on a later line does not
+        // hide a ] on this line (the label ends at that ]).
         let k = j;
         while (k < n && src[k] === '`') k++;
         const ticks = k - j;
-        const close = src.indexOf('`'.repeat(ticks), k);
-        if (close !== -1) j = close + ticks - 1;
+        // Find closer on the same line only.
+        let close = -1;
+        let m = k;
+        while (m < n && src[m] !== '\n') {
+          if (src.startsWith('`'.repeat(ticks), m)) {
+            const beforeOk = m === 0 || src[m - 1] !== '`';
+            const afterOk = m + ticks >= n || src[m + ticks] !== '`';
+            if (beforeOk && afterOk) { close = m; break; }
+          }
+          m++;
+        }
+        if (close !== -1) {
+          j = close + ticks - 1;
+        }
         continue;
       }
       if (ch === '[') depth++;
