@@ -1275,9 +1275,17 @@ function parseInline(src, refs, inLink) {
                 if (/^[A-Za-z][A-Za-z0-9+.-]{1,31}:/.test(inner) || /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/.test(inner)) continue;
               }
               const tagEnd = matchHtmlTag(src, absLt);
-              // Invalid tag, or a tag whose end lies past the label's ]
-              // (the tag is unterminated inside the label) -> no link.
-              if (tagEnd === -1 || tagEnd > closeIdx) { hasNestedLink = true; break; }
+              // A tag is only invalidating when it carries an unclosed
+              // quoted attribute value that spans past the label's ]
+              // (cm-524: <bar attr="... with the closing quote after ]).
+              // A bare "<word" with no quote is a literal < and the link
+              // still forms (doc-05: <modern](...) ).
+              if (tagEnd === -1 || tagEnd > closeIdx) {
+                const seg = src.slice(absLt, closeIdx + 1);
+                const q1 = seg.indexOf('"');
+                const q2 = q1 === -1 ? -1 : seg.indexOf('"', q1 + 1);
+                if (q1 !== -1 && q2 === -1) { hasNestedLink = true; break; }
+              }
             }
           }
           if (hasNestedLink) {
@@ -2002,8 +2010,10 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
       // which is an (empty) table row. A spaces-only line ends the table.
       while (i < n && lines[i] !== '' && !(isBlank(lines[i]) && lines[i].indexOf('\t') === -1)) {
         const l = lines[i];
-        // A table row ends at a line that starts a new block.
-        if (matchBlockquote(l) !== -1 || matchAtx(l) !== null || matchFence(l) !== null || isThematicBreak(l) || matchListItem(l) !== null) break;
+        // A table row ends at a line that starts a new block, including
+        // an HTML block (doc-05: a <details> line after a table ends it;
+        // it is not a table row).
+        if (matchBlockquote(l) !== -1 || matchAtx(l) !== null || matchFence(l) !== null || isThematicBreak(l) || matchListItem(l) !== null || htmlBlockType(l) !== 0) break;
         // A row without pipes is a single-cell row (remaining cells empty).
         rows.push(splitTableRow(l));
         i++;
