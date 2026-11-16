@@ -1254,6 +1254,29 @@ function parseInline(src, refs, inLink) {
               }
             }
           }
+          // An invalid HTML tag attempt in the label invalidates the link
+          // (cm-524/536: [foo <bar attr="](baz)"> stays literal). Only a
+          // '<' followed by a letter (or '/' + letter, or '!') can start a
+          // tag; a '<' that begins a valid autolink is not a tag attempt.
+          if (!hasNestedLink) {
+            for (let lt = 0; lt < labelText.length; lt++) {
+              if (labelText[lt] !== '<') continue;
+              const nx = labelText[lt + 1];
+              const isTagStart = (nx >= 'A' && nx <= 'Z') || (nx >= 'a' && nx <= 'z') || nx === '!' || (nx === '/' && ((labelText[lt + 2] >= 'A' && labelText[lt + 2] <= 'Z') || (labelText[lt + 2] >= 'a' && labelText[lt + 2] <= 'z')));
+              if (!isTagStart) continue;
+              const absLt = openIdx + 1 + lt;
+              // Skip a valid autolink <scheme:...> or <email>.
+              const gtIdx = src.indexOf('>', absLt + 1);
+              if (gtIdx !== -1 && gtIdx <= closeIdx) {
+                const inner = src.slice(absLt + 1, gtIdx);
+                if (/^[A-Za-z][A-Za-z0-9+.-]{1,31}:/.test(inner) || /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/.test(inner)) continue;
+              }
+              const tagEnd = matchHtmlTag(src, absLt);
+              // Invalid tag, or a tag whose end lies past the label's ]
+              // (the tag is unterminated inside the label) -> no link.
+              if (tagEnd === -1 || tagEnd > closeIdx) { hasNestedLink = true; break; }
+            }
+          }
           if (hasNestedLink) {
             i = openIdx + 1;
             continue;
@@ -1370,8 +1393,6 @@ function parseInline(src, refs, inLink) {
           continue;
         }
       }
-      i++;
-      continue;
     }
     // --- hard break: two spaces + newline ---
     if (ch === '\n') {
