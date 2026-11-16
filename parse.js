@@ -872,7 +872,7 @@ function parseAutolink(src, i) {
 
 // Check for an extended autolink (GFM): www.foo.bar or user@host or scheme://...
 // at position i. Returns {href, text, end} or null.
-function parseExtendedAutolink(src, i) {
+function parseExtendedAutolink(src, i, allowUnderscore) {
   // www.
   if (src.startsWith('www.', i)) {
     let j = i + 4;
@@ -912,9 +912,12 @@ function parseExtendedAutolink(src, i) {
   const em = src.slice(i).match(/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/);
   if (em) {
     // If the match is immediately followed by - or _, the domain would
-    // end with it, so the whole thing is not an autolink.
+    // end with it, so the whole thing is not an autolink. But a trailing
+    // _ is allowed if it's an emphasis closer (there's an unmatched
+    // opening _ before this email).
     const afterIdx = i + em[0].length;
-    if (afterIdx < src.length && (src[afterIdx] === '-' || src[afterIdx] === '_')) return null;
+    if (afterIdx < src.length && src[afterIdx] === '-') return null;
+    if (afterIdx < src.length && src[afterIdx] === '_' && !allowUnderscore) return null;
     let text = trimTrailingPunct(em[0]);
     // must have a dot and valid domain
     if (text.indexOf('.') === -1) return null;
@@ -1190,7 +1193,14 @@ function parseInline(src, refs, inLink) {
       // Only if not preceded by a word char or / or other link-ish char
       const prev = i === 0 ? '' : src[i - 1];
       if (i === 0 || isWhitespace(prev) || prev === '*' || prev === '_' || prev === '~' || prev === '(' || prev === '[' || prev === '>' || prev === '"' || prev === "'") {
-        const ea = parseExtendedAutolink(src, i);
+        // A trailing _ after an email is an emphasis closer if there's an
+        // unmatched opening _ delim in the token stream so far.
+        let allowUnderscore = false;
+        for (let k = out.length - 1; k >= 0; k--) {
+          if (out[k].t === 'delim' && out[k].ch === '_' && out[k].canOpen && out[k].count > 0) { allowUnderscore = true; break; }
+          if (out[k].t === 'delim' && out[k].ch === '_' && out[k].canClose) break;
+        }
+        const ea = parseExtendedAutolink(src, i, allowUnderscore);
         if (ea) {
           flushText(i);
           const href = cleanUrl(ea.href);
