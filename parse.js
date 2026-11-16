@@ -1837,13 +1837,6 @@ function parseList(lines, start, refs, baseCol) {
       itemLines.push(l);
       i++;
     }
-    // Determine if this item is loose: it contains a blank line followed by a block, or two blocks separated by blank
-    // Simplified: if itemLines contains a blank line that is followed by non-blank, it's loose.
-    let isLoose = false;
-    for (let k = 0; k < itemLines.length - 1; k++) {
-      if (itemLines[k] === '' && itemLines[k + 1] !== '') { isLoose = true; break; }
-    }
-    if (isLoose) loose = true;
     // Parse the item's content as blocks. Strip the leading contentIndent we added.
     // itemLines were built with contentIndent spaces prepended for the first line and
     // removeIndent applied to the rest, so they're already aligned. But we prepended
@@ -1857,6 +1850,35 @@ function parseList(lines, start, refs, baseCol) {
     });
     // Remove trailing blank lines
     while (subLines.length > 0 && subLines[subLines.length - 1] === '') subLines.pop();
+    // Determine if this item is loose: it contains two top-level blocks
+    // separated by a blank line. A blank line only counts if the next
+    // non-blank line starts a top-level block: indent 0 (paragraph, heading,
+    // list, fence, etc.) or indent >= 4 (an indented code block). Blanks
+    // inside a nested block (indented 1-3, part of a nested list item)
+    // belong to that nested block and do not make THIS item loose. An
+    // indented (>= 4) block after a blank only counts when no nested list
+    // item precedes the blank in this item (otherwise the indented content
+    // belongs to that nested list).
+    let isLoose = false;
+    for (let k = 0; k < subLines.length - 1; k++) {
+      if (subLines[k] === '') {
+        let j = k + 1;
+        while (j < subLines.length && subLines[j] === '') j++;
+        if (j < subLines.length) {
+          const ind = fullLeadingCol(subLines[j]);
+          if (ind === 0) { isLoose = true; break; }
+          if (ind >= 4) {
+            // Check for a nested list item before this blank.
+            let hasNestedList = false;
+            for (let m = 0; m < k; m++) {
+              if (matchListItem(subLines[m])) { hasNestedList = true; break; }
+            }
+            if (!hasNestedList) { isLoose = true; break; }
+          }
+        }
+      }
+    }
+    if (isLoose) loose = true;
     // Task list: check if first line starts with [ ] or [x]
     let task = null;
     if (subLines.length > 0) {
