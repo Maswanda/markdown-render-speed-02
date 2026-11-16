@@ -90,8 +90,11 @@ function isWhitespace(ch) { return ch === ' ' || ch === '\t' || ch === '\n' || c
 const NEEDS_ESCAPE = /[&<>"']/;
 // Sticky regexes for the GFM extended-autolink pre-check (avoids
 // src.slice(i) allocations). lastIndex is set to i before each test.
-const SCHEME_SLASH_RE = /[A-Za-z][A-Za-z0-9+.-]{1,31}:\/\//y;
-const SCHEME_COLON_RE = /[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]+/y;
+// Marked only autolinks http/https/ftp for scheme://, and mailto:/xmpp:
+// (with an email) for scheme:. Any other scheme is not a link
+// (foo://, ssh://, prefixhttps:// are plain text).
+const SCHEME_SLASH_RE = /(?:https?|ftp):\/\//iy;
+const SCHEME_COLON_RE = /(?:mailto|xmpp):[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/iy;
 const EMAIL_RE = /[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/y;
 function escapeHtmlStrict(s) {
   // Fast path: no escapable char at all.
@@ -1015,14 +1018,14 @@ function parseExtendedAutolink(src, i, allowUnderscore) {
     if (text.length <= 4) return null;
     return { href: 'http://' + text, text, end: i + text.length };
   }
-  // scheme://
-  const sm = src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/[^\s<>]+/);
+  // scheme:// — only http/https/ftp autolink (marked's Re).
+  const sm = src.slice(i).match(/^(?:https?|ftp):\/\/[^\s<>]+/i);
   if (sm) {
     let text = trimTrailingPunct(sm[0]);
     return { href: text, text, end: i + text.length };
   }
-  // scheme: (e.g. mailto:, xmpp:) followed by non-space text
-  const scm = src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]+/);
+  // scheme: (only mailto: and xmpp: with an email) followed by non-space text
+  const scm = src.slice(i).match(/^(?:mailto|xmpp):[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+[^\s<>]*/i);
   if (scm) {
     // If the raw address ends with - or _ (e.g. mailto:a.b@a.b-), it is
     // not an autolink at all. Check the raw match, before trimming.
@@ -1087,16 +1090,6 @@ function trimTrailingPunct(s) {
 // Cheap pre-scan for a possible extended autolink at i: true when a ':'
 // or '@' appears within the next 40 chars (and before any whitespace or
 // angle bracket). Avoids a slice+regex on every alphabetic character.
-function couldBeAutolink(src, i) {
-  const lim = Math.min(src.length, i + 40);
-  for (let j = i; j < lim; j++) {
-    const c = src[j];
-    if (c === ':' || c === '@') return true;
-    if (c === ' ' || c === '\t' || c === '\n' || c === '<' || c === '>') return false;
-  }
-  return false;
-}
-
 // Parse inline content to HTML. Returns the HTML string.
 // `inLink` is true when this text is inside a link label (links cannot nest).
 // Find the matching ] for a [ starting at `from`, handling nested brackets
@@ -1475,12 +1468,20 @@ function parseInline(src, refs, inLink) {
     }
     // --- extended autolink (GFM) ---
     // Links cannot nest: no autolink inside a link label.
-    // Cheap pre-scan: an autolink needs a ':' or '@' within ~40 chars;
-    // skip the expensive slice+regex when there is none.
-    if (!inLink && ((ch === 'w' && src.startsWith('www.', i)) || (isAlpha(ch) && couldBeAutolink(src, i) && ((SCHEME_SLASH_RE.lastIndex = i, SCHEME_SLASH_RE.test(src)) || (SCHEME_COLON_RE.lastIndex = i, SCHEME_COLON_RE.test(src)) || (EMAIL_RE.lastIndex = i, EMAIL_RE.test(src)))))) {
-      // Only if not preceded by a word char or / or other link-ish char
-      const prev = i === 0 ? '' : src[i - 1];
-      if (i === 0 || isWhitespace(prev) || prev === '*' || prev === '_' || prev === '~' || prev === '(' || prev === '[' || prev === '>' || prev === '<' || prev === '"' || prev === "'") {
+    // www. needs a word boundary before it (xwww. is not a link); a
+    // scheme (https?|ftp) or email may start mid-word (xhttps:// links
+    // the https:// part; xme@ links the whole email). The sticky regexes
+    // fail fast, so no couldBeAutolink pre-scan is needed.
+    if (!inLink && (ch === 'w' || isAlpha(ch))) {
+      let isAutolink = false;
+      if (ch === 'w' && src.startsWith('www.', i)) {
+        // www.: require a word boundary (prev not alnum/_).
+        const prev = i === 0 ? '' : src[i - 1];
+        if (i === 0 || (!isAlnum(prev) && prev !== '_')) isAutolink = true;
+      } else if (isAlpha(ch)) {
+        isAutolink = (SCHEME_SLASH_RE.lastIndex = i, SCHEME_SLASH_RE.test(src)) || (SCHEME_COLON_RE.lastIndex = i, SCHEME_COLON_RE.test(src)) || (EMAIL_RE.lastIndex = i, EMAIL_RE.test(src));
+      }
+      if (isAutolink) {
         // A trailing _ after an email is an emphasis closer if there's an
         // unmatched opening _ delim in the token stream so far.
         let allowUnderscore = false;
@@ -2473,8 +2474,9 @@ function renderBlocks(blocks, refs, tight) {
 
 export function parse(markdown) {
   const refs = Object.create(null);
-  // Normalise line endings to \n (marked does this first).
-  const src = markdown.replace(/\r\n?/g, '\n');
+  // Normalise line endings to \n (marked does this first). Skip the
+  // regex scan when there is no \r at all (the common case).
+  const src = markdown.indexOf('\r') === -1 ? markdown : markdown.replace(/\r\n?/g, '\n');
   const endsWithNewline = src.endsWith('\n');
   const lines = src.split('\n');
   // A trailing newline produces a final empty line; drop it (it is not a real line).
