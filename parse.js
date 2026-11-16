@@ -601,9 +601,13 @@ function isIndentedCode(line) {
 }
 
 // Remove up to `n` leading spaces (expanding tabs) from a line.
-function removeIndent(line, n, baseCol) {
+function removeIndent(line, n, baseCol, expandBoundaryTab) {
   // baseCol = columns already removed by outer containers (for tab expansion).
+  // expandBoundaryTab: when false, a tab exactly at the indent boundary
+  // stays a literal tab (indented code content). When true (default), it
+  // expands to the next 4-col stop from its original column (base + col).
   const base = baseCol || 0;
+  const expandTab = expandBoundaryTab !== false;
   let col = 0;
   let i = 0;
   while (i < line.length && col < n) {
@@ -624,7 +628,8 @@ function removeIndent(line, n, baseCol) {
   // (a nested container already removed columns), the tab is also at a
   // boundary in original coordinates and expands from base. Only when
   // base=0 and n=0 (top level, nothing removed) does the tab stay literal.
-  if (i < line.length && line[i] === '\t' && (col > 0 || base > 0)) {
+  // Indented code never expands a boundary tab (it is content).
+  if (expandTab && i < line.length && line[i] === '\t' && (col > 0 || base > 0)) {
     return ' '.repeat(4 - ((base + col) % 4)) + line.slice(i + 1);
   }
   return line.slice(i);
@@ -1549,14 +1554,14 @@ function parseBlocks(lines, refs, baseCol) {
           while (j < n && isBlank(lines[j])) j++;
           if (j < n && isIndentedCode(lines[j])) {
             // blank line inside code: strip up to 4 leading spaces (keep the rest)
-            codeLines.push(removeIndent(l, 4, base));
+            codeLines.push(removeIndent(l, 4, base, false));
             i++;
             continue;
           }
           break;
         }
         if (!isIndentedCode(l)) break;
-        codeLines.push(removeIndent(l, 4, base));
+        codeLines.push(removeIndent(l, 4, base, false));
         i++;
       }
       // strip trailing blank lines
