@@ -1540,6 +1540,24 @@ function resolveEmphasis(out, delims) {
           const sum = op.count + closer.count;
           if (sum % 3 === 0 && (op.count % 3 !== 0 || closer.count % 3 !== 0)) continue;
         }
+        // Prefer strong: a single closer must not steal one asterisk from
+        // a double opener when a double closer follows that would form
+        // strong with it (e.g. **a *b* c** keeps the outer strong; the
+        // lone * stays literal). Only when the opener has exactly 2 (with
+        // 3+, one can go to em and two to strong, as in ***foo* bar**).
+        if (closer.count === 1 && op.count === 2) {
+          let hasDoubleCloser = false;
+          for (let dk = di + 1; dk < delims.length; dk++) {
+            const dc = delims[dk];
+            if (dc.node.ch !== closer.node.ch) continue;
+            if (!dc.canClose || !dc.node.active || dc.count < 2) continue;
+            const dcSlot = out[dc.outIndex];
+            if (dcSlot && dcSlot.t === 'consumed') continue;
+            hasDoubleCloser = true;
+            break;
+          }
+          if (hasDoubleCloser) continue;
+        }
         openerIdx = oj;
         break;
       }
