@@ -1142,6 +1142,25 @@ function parseInline(src, refs, inLink) {
             while ((m = re.exec(labelText)) !== null) {
               // Skip if preceded by ! (image).
               if (m.index > 0 && labelText[m.index - 1] === '!') continue;
+              // Skip if this [label] is the reference of a preceding image
+              // (![alt][ref]): find the [ matching the ] just before it;
+              // if that [ is preceded by !, it is an image reference.
+              if (m.index > 0 && labelText[m.index - 1] === ']') {
+                let depth = 0;
+                let openPos = -1;
+                for (let p = m.index - 2; p >= 0; p--) {
+                  if (labelText[p] === ']') depth++;
+                  else if (labelText[p] === '[') {
+                    if (depth === 0) { openPos = p; break; }
+                    depth--;
+                  }
+                }
+                if (openPos > 0 && labelText[openPos - 1] === '!') continue;
+                if (openPos === 0) {
+                  // The [ is at the start of the label; it cannot be an
+                  // image (no ! before it), so it is a link reference.
+                }
+              }
               const innerLabel = m[1];
               const innerKey = normalizeLabel(innerLabel);
               if (refs[innerKey]) { hasNestedLink = true; break; }
