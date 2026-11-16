@@ -1110,6 +1110,9 @@ function trimTrailingPunct(s) {
 // ranges so the caller can suppress emphasis delimiters inside them.
 function spuriousCodeSpanRanges(src, n) {
   const ranges = [];
+  // Fast path: no backtick or no link bracket means no code span in a
+  // label and no unmatched backtick to pair, so no ranges.
+  if (src.indexOf('`') === -1 || src.indexOf('[') === -1) return ranges;
   // Collect links: {labelStart, labelEnd, unmatchedBt, unmatchedTicks, codeSpanOpen}
   const links = [];
   // Standalone code-span openings outside link labels: {pos, ticks}
@@ -1123,9 +1126,10 @@ function spuriousCodeSpanRanges(src, n) {
         let k = i;
         while (k < n && src[k] === '`') k++;
         const ticks = k - i;
+        const closer = '`'.repeat(ticks);
         let close = -1, m = k;
         while (m < n) {
-          if (src.startsWith('`'.repeat(ticks), m)) { close = m; break; }
+          if (src.startsWith(closer, m)) { close = m; break; }
           m++;
         }
         if (close !== -1) standaloneOpens.push({ pos: i, ticks });
@@ -1848,11 +1852,9 @@ function markUnpairableOpeners(delims, src) {
     // exists) — cm-415 `*foo**bar***` has no enclosing strong, so its
     // outer `*` must still pair.
     let sawBlockedBoth = false;
-    let hasEnclosing = false;
-    for (let pj = oi - 1; pj >= 0; pj--) {
-      if (delims[pj].node.ch === ch && delims[pj].canOpen && delims[pj].node.active && delims[pj].count >= 2) { hasEnclosing = true; break; }
-      if (delims[pj].node.ch === ch && delims[pj].canClose && !delims[pj].canOpen) break;
-    }
+    // Lazily computed (only when a break is imminent): whether this
+    // opener sits inside an enclosing `**` strong.
+    let hasEnclosing = -1;
     for (let di = oi + 1; di < delims.length; di++) {
       const d = delims[di];
       if (d.node.ch !== ch) continue;
@@ -1860,7 +1862,16 @@ function markUnpairableOpeners(delims, src) {
       if (isScanProtected(delims, oi, di, ch)) continue;
       if (d.canOpen && !d.canClose) m += d.count;
       else if (!d.canOpen && d.canClose) {
-        if (hasEnclosing && op.count === 1 && d.count >= 2 && m - d.count <= 0 && sawBlockedBoth) break;
+        if (op.count === 1 && d.count >= 2 && m - d.count <= 0 && sawBlockedBoth) {
+          if (hasEnclosing === -1) {
+            hasEnclosing = 0;
+            for (let pj = oi - 1; pj >= 0; pj--) {
+              if (delims[pj].node.ch === ch && delims[pj].canOpen && delims[pj].node.active && delims[pj].count >= 2) { hasEnclosing = 1; break; }
+              if (delims[pj].node.ch === ch && delims[pj].canClose && !delims[pj].canOpen) break;
+            }
+          }
+          if (hasEnclosing === 1) break;
+        }
         m -= d.count;
       }
       else if (d.canOpen && d.canClose) {
