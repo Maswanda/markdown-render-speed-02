@@ -646,8 +646,9 @@ function removeIndent(line, n, baseCol, expandBoundaryTab) {
     else if (ch === '\t') {
       const adv = 4 - ((base + col) % 4);
       if (col + adv > n) {
-        // partial tab: replace with spaces
-        return ' '.repeat(n - col) + line.slice(i + 1);
+        // Partial tab: the tab advances adv columns, we need to remove
+        // only (n-col) of them, so (adv-(n-col)) spaces remain.
+        return ' '.repeat(adv - (n - col)) + line.slice(i + 1);
       }
       col += adv; i++;
     } else break;
