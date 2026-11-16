@@ -1007,6 +1007,19 @@ function trimTrailingPunct(s) {
   return out.slice(0, end);
 }
 
+// Cheap pre-scan for a possible extended autolink at i: true when a ':'
+// or '@' appears within the next 40 chars (and before any whitespace or
+// angle bracket). Avoids a slice+regex on every alphabetic character.
+function couldBeAutolink(src, i) {
+  const lim = Math.min(src.length, i + 40);
+  for (let j = i; j < lim; j++) {
+    const c = src[j];
+    if (c === ':' || c === '@') return true;
+    if (c === ' ' || c === '\t' || c === '\n' || c === '<' || c === '>') return false;
+  }
+  return false;
+}
+
 // Parse inline content to HTML. Returns the HTML string.
 // `inLink` is true when this text is inside a link label (links cannot nest).
 function parseInline(src, refs, inLink) {
@@ -1330,7 +1343,9 @@ function parseInline(src, refs, inLink) {
     }
     // --- extended autolink (GFM) ---
     // Links cannot nest: no autolink inside a link label.
-    if (!inLink && ((ch === 'w' && src.startsWith('www.', i)) || (isAlpha(ch) && (src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:\/\//) || src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]+/) || src.slice(i).match(/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/))))) {
+    // Cheap pre-scan: an autolink needs a ':' or '@' within ~40 chars;
+    // skip the expensive slice+regex when there is none.
+    if (!inLink && ((ch === 'w' && src.startsWith('www.', i)) || (isAlpha(ch) && couldBeAutolink(src, i) && (src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:\/\//) || src.slice(i).match(/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]+/) || src.slice(i).match(/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/))))) {
       // Only if not preceded by a word char or / or other link-ish char
       const prev = i === 0 ? '' : src[i - 1];
       if (i === 0 || isWhitespace(prev) || prev === '*' || prev === '_' || prev === '~' || prev === '(' || prev === '[' || prev === '>' || prev === '<' || prev === '"' || prev === "'") {
