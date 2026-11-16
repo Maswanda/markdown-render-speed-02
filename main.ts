@@ -1,3 +1,4 @@
+// Driver for the markdown renderer — reads cases, renders each with parse(), writes html.json.
 // Driver for the markdown renderer: reads every case from /input/cases.json,
 // renders each one alone with parse() from parse.js, and writes the HTML strings
 // to /output/html.json in the cases' order. Runs as `node /bot/main.ts` (node22).

@@ -1,3 +1,4 @@
+// Clean-room CommonMark 0.31.2 + GFM 0.29 parser — byte-identical output to marked 18.1.3.
 // Fast Markdown renderer: byte-identical HTML to marked 18.1.3 (GFM, default options)
 // but faster. A clean-room implementation of the CommonMark 0.31.2 + GFM 0.29
 // behaviour as marked renders it, written for speed: single-pass block scan,
