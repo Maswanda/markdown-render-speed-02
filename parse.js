@@ -285,13 +285,16 @@ function parseLinkDef(lines, i, refs) {
   let p = 0;
   while (p < line.length && line[p] === ' ') p++;
   if (p > 3 || line[p] !== '[') return null;
-  // find matching ] (balanced, with escapes); label may span one more line
+  // find matching ] (balanced, with escapes); label may span up to two
+  // more lines (e.g. [\nfoo\n]: /url).
   let depth = 0, j = p;
   let labelEnd = -1;
   let labelText = '';
   let labelEndLine = i;
-  // Scan the current line, then (if needed) the next line joined with \n.
-  const scanStr = line + (i + 1 < lines.length ? '\n' + lines[i + 1] : '');
+  // Scan the current line plus the next two lines joined with \n.
+  let scanStr = line;
+  if (i + 1 < lines.length) scanStr += '\n' + lines[i + 1];
+  if (i + 2 < lines.length) scanStr += '\n' + lines[i + 2];
   for (; j < scanStr.length; j++) {
     const ch = scanStr[j];
     if (ch === '\\' && j + 1 < scanStr.length) { j++; continue; }
@@ -308,25 +311,30 @@ function parseLinkDef(lines, i, refs) {
   const labelRaw = labelText;
   // Determine which line the label ended on and the position of ':' after it.
   let k;
-  if (labelEnd < line.length) {
-    labelEndLine = i;
-    k = labelEnd + 1;
-  } else {
-    labelEndLine = i + 1;
-    k = labelEnd - line.length; // position in next line (after the \n)
+  let rem = labelEnd;
+  let ln = i;
+  while (rem >= lines[ln].length) {
+    rem -= lines[ln].length + 1; // skip the line and its \n
+    ln++;
   }
+  labelEndLine = ln;
+  k = rem + 1;
   // label must not contain unescaped [ ] handled above; also must not be blank after trim? marked allows.
   // k is the position after ']' in the label's end line; check for ':' there.
   let cur = labelEndLine;
   let s = lines[cur];
   if (s[k] !== ':') return null;
   k++;
-  // skip spaces/tabs, allow one newline + spaces
+  // skip spaces/tabs, allow one newline + spaces to reach the dest on
+  // the next line — but NOT across a blank line (a blank line after the
+  // colon means there is no destination).
   const skipWs = () => {
     while (true) {
       while (k < s.length && (s[k] === ' ' || s[k] === '\t')) k++;
       if (k >= s.length && cur + 1 < lines.length) {
-        cur++; s = lines[cur]; k = 0;
+        const nl = lines[cur + 1];
+        if (isBlank(nl)) return; // blank line: no destination here
+        cur++; s = nl; k = 0;
         continue;
       }
       break;
@@ -357,6 +365,9 @@ function parseLinkDef(lines, i, refs) {
     if (/[\x00-\x20]/.test(dest)) return null;
     k = m;
   }
+  // Unescape backslash escapes in the dest (\* -> *, but \b stays \b
+  // since b is not punctuation; cleanUrl later encodes the leftover \).
+  dest = dest.replace(/\\([!-/:-@\[-`{-~])/g, '$1');
   // optional title
   let title = null;
   // skip spaces on same line; a title must be separated from the dest by
@@ -366,13 +377,29 @@ function parseLinkDef(lines, i, refs) {
   while (k < s.length && (s[k] === ' ' || s[k] === '\t')) k++;
   if (k < s.length) {
     if (k === wsStart) return null; // no whitespace before title/junk
-    // title on same line
-    const t = parseTitle(s, k);
+    // title on same line; it may span several lines, so join the current
+    // line with the following lines for parseTitle. k is the offset in
+    // lines[cur], which is the start of `joined`, so it carries over.
+    const joined = lines.slice(cur).join('\n');
+    const t = parseTitle(joined, k);
     if (t) {
       title = t.title;
-      k = t.end;
-      while (k < s.length && (s[k] === ' ' || s[k] === '\t')) k++;
-      if (k < s.length) return null; // trailing junk
+      // Count newlines consumed by the title to find the end line.
+      const before = joined.slice(0, t.end);
+      const nlCount = (before.match(/\n/g) || []).length;
+      const endLine = cur + nlCount;
+      const endLineStr = lines[endLine];
+      // Position of the title end within its line.
+      let posInLine;
+      if (nlCount === 0) posInLine = t.end;
+      else {
+        const lastNl = joined.lastIndexOf('\n', t.end - 1);
+        posInLine = t.end - lastNl - 1;
+      }
+      let p = posInLine;
+      while (p < endLineStr.length && (endLineStr[p] === ' ' || endLineStr[p] === '\t')) p++;
+      if (p < endLineStr.length) return null; // trailing junk
+      cur = endLine;
     } else {
       return null; // trailing junk
     }
@@ -1817,13 +1844,10 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
       // follows a paragraph on the next line without a blank line... 
       // Hmm, actually in CommonMark a link definition CAN interrupt a paragraph. Example:
       //   Foo
-      //   [bar]: /url
-      //   baz
-      // This is a paragraph "Foo" + def + paragraph "baz"? Or one paragraph "Foo [bar]: /url baz"?
-      // Per CommonMark spec, link reference definitions can interrupt a paragraph. So "Foo" is a
-      // paragraph, then the def, then "baz" is a paragraph. But marked... let me handle it:
-      // if this line parses as a link def, break the paragraph.
-      if (tryLinkDef(lines, i, refs)) break;
+      // A link reference definition does NOT interrupt a paragraph in
+      // marked (cm-213): Foo\n[bar]: /baz is one paragraph, and the def
+      // is never registered. So do not break here; the def line is part
+      // of the paragraph text.
       paraLines.push(l);
       i++;
     }
