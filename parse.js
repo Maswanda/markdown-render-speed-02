@@ -1784,7 +1784,9 @@ function parseBlocks(lines, refs, baseCol) {
       // table: head + delimiter + rows
       const headCells = splitTableRow(tableHead);
       const rows = [];
-      while (i < n && !isBlank(lines[i])) {
+      // A blank line ends the table — except a line containing only a tab,
+      // which is an (empty) table row. A spaces-only line ends the table.
+      while (i < n && lines[i] !== '' && !(isBlank(lines[i]) && lines[i].indexOf('\t') === -1)) {
         const l = lines[i];
         // A table row ends at a line that starts a new block.
         if (matchBlockquote(l) !== -1 || matchAtx(l) !== null || matchFence(l) !== null || isThematicBreak(l) || matchListItem(l) !== null) break;
