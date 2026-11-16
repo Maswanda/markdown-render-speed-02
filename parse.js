@@ -8,6 +8,15 @@
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
+// Sticky document state: marked's GFM extended autolinks (bare scheme://,
+// www., email) stop being formed once an opening <a ...> tag has been
+// tokenised as inline HTML, until a closing </a> is tokenised as inline
+// HTML (doc-03, doc-30). A standalone <a> line is an HTML block, never
+// inline-tokenised, so it does not count; neither does a tag inside a
+// link label. Explicit [text](url) links, <...> autolinks and emphasis
+// are unaffected. Reset per parse() call.
+let gfmAutolinkOff = false;
+
 // HTML block tags (type 6) - CommonMark list
 const BLOCK_TAGS = new Set(('address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu menuitem meta nav noframes ol optgroup option p param search section summary table tbody td tfoot th thead title tr track ul').split(' '));
 
@@ -1570,7 +1579,25 @@ function parseInline(src, refs, inLink) {
       const tagEnd = matchHtmlTag(src, i);
       if (tagEnd !== -1) {
         flushText(i);
-        out.push({ t: 'html', s: src.slice(i, tagEnd) });
+        const tagText = src.slice(i, tagEnd);
+        // An opening <a ...> tag tokenised as inline HTML disables GFM
+        // extended autolinks until a closing </a> is tokenised as inline
+        // HTML (doc-03, doc-30). A standalone <a> line is an HTML block,
+        // never inline-tokenised, so it does not count. Only top-level
+        // inline content counts: a tag inside a link label (doc-03 line
+        // 850) must not change the document state.
+        if (!inLink) {
+          if (tagText.length > 2 && tagText[1] !== '/' &&
+              (tagText[1] === 'a' || tagText[1] === 'A') &&
+              (tagText[2] === ' ' || tagText[2] === '\t' || tagText[2] === '\n' || tagText[2] === '>')) {
+            gfmAutolinkOff = true;
+          } else if (tagText.length >= 4 && tagText[1] === '/' &&
+              (tagText[2] === 'a' || tagText[2] === 'A') &&
+              /^[\s]*>$/.test(tagText.slice(3))) {
+            gfmAutolinkOff = false;
+          }
+        }
+        out.push({ t: 'html', s: tagText });
         i = tagEnd;
         textStart = i;
         continue;
@@ -1584,7 +1611,7 @@ function parseInline(src, refs, inLink) {
     // scheme (https?|ftp) or email may start mid-word (xhttps:// links
     // the https:// part; xme@ links the whole email). The sticky regexes
     // fail fast, so no couldBeAutolink pre-scan is needed.
-    if (!inLink && (ch === 'w' || isAlpha(ch))) {
+    if (!inLink && !gfmAutolinkOff && (ch === 'w' || isAlpha(ch))) {
       let isAutolink = false;
       if (ch === 'w' && src.startsWith('www.', i)) {
         // www.: require a word boundary (prev not alnum/_).
@@ -2693,6 +2720,7 @@ function renderBlocks(blocks, refs, tight) {
 // ---------------------------------------------------------------------------
 
 export function parse(markdown) {
+  gfmAutolinkOff = false;
   const refs = Object.create(null);
   // Normalise line endings to \n (marked does this first). Skip the
   // regex scan when there is no \r at all (the common case).
