@@ -1110,6 +1110,10 @@ function parseInline(src, refs, inLink) {
   // We use a delimiter-stack approach for emphasis.
   const out = [];
   const delims = []; // stack of {char, count, nodeIndex, canOpen, canClose, active}
+  // Ranges [start,end) inside which emphasis delimiters stay literal:
+  // the label of a link rejected because a code span in it contains a
+  // backtick (doc-16/20/23: [at _node `a`b`_](...) keeps the _ literal).
+  const noEmph = [];
   let i = 0;
   let textStart = 0;
 
@@ -1244,7 +1248,16 @@ function parseInline(src, refs, inLink) {
       flushText(i);
       const node = { t: 'delim', ch, count, canOpen, canClose, active: true, children: [] };
       out.push(node);
-      delims.push({ node, outIndex: out.length - 1, count, initialCount: count, canOpen, canClose });
+      // Inside a code-span-rejected link label, emphasis delimiters stay
+      // literal (they are not pushed to the delimiter stack), so they
+      // render as plain text. Code spans inside the label still form.
+      let suppressed = false;
+      for (let r = 0; r < noEmph.length; r++) {
+        if (i >= noEmph[r][0] && i < noEmph[r][1]) { suppressed = true; break; }
+      }
+      if (!suppressed) {
+        delims.push({ node, outIndex: out.length - 1, count, initialCount: count, canOpen, canClose });
+      }
       i = j;
       textStart = i;
       continue;
@@ -1355,8 +1368,12 @@ function parseInline(src, refs, inLink) {
           // A code span in the label whose content contains a backtick
           // invalidates the link (doc-16/18/20/22/23: [x ``a`b`` y](z)
           // stays literal). An unmatched backtick alone does not.
+          // Emphasis delimiters inside such a rejected label also stay
+          // literal in marked (the _..._ in [at _node `a`b`_](...) does
+          // not form), while code spans inside it still render.
           if (!hasNestedLink && labelHasBadCodeSpan(labelText)) {
             hasNestedLink = true;
+            noEmph.push([openIdx + 1, closeIdx]);
           }
           if (hasNestedLink) {
             i = openIdx + 1;
