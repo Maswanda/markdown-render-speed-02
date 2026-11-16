@@ -1832,7 +1832,30 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
             i++;
             continue;
           }
-          if (isThematicBreak(l) || matchAtx(l) !== null || matchFence(l) !== null || htmlBlockType(l) !== 0 || matchListItem(l) !== null || isIndentedCode(l)) break;
+          // An indented-code-looking line (4+ spaces) as a lazy
+          // continuation is paragraph text, not a new block (indented
+          // code cannot interrupt a paragraph). Its leading spaces are
+          // stripped to 0 (cm-238: "> foo\n    - bar" gives <p>foo\n-
+          // bar</p>). Append it to the previous qLine so the inner parse
+          // sees it as paragraph text, not a list item / code block.
+          // But only when the quote so far ends in a paragraph: if it
+          // ends in an indented code block, the line ends the quote
+          // instead (cm-236: ">     foo\n    bar" -> code in quote, then
+          // a separate code block outside).
+          if (isIndentedCode(l)) {
+            const lastQ = qLines.length > 0 ? qLines[qLines.length - 1] : '';
+            const lastIsCode = lastQ !== '' && fullLeadingCol(lastQ) >= 4;
+            if (lastQ !== '' && !lastIsCode) {
+              let p = 0;
+              while (p < l.length && (l[p] === ' ' || l[p] === '\t')) p++;
+              qLines[qLines.length - 1] += '\n' + l.slice(p);
+              prevWasLazy = true;
+              i++;
+              continue;
+            }
+            break;
+          }
+          if (isThematicBreak(l) || matchAtx(l) !== null || matchFence(l) !== null || htmlBlockType(l) !== 0 || matchListItem(l) !== null) break;
           qLines.push(l);
           prevWasLazy = true;
           i++;
