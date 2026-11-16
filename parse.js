@@ -855,6 +855,35 @@ function matchTableDelim(line) {
 // We implement the CommonMark emphasis algorithm with a delimiter stack, and
 // marked's link/image/autolink rules.
 
+// A link label containing a code span whose content includes a backtick,
+// or an unmatched backtick, is not a link (marked's label regex cannot
+// match it). E.g. [x ``a`b`` y](z) and [x `a`b` y](z) stay literal, while
+// [x ``ab`` y](z) and [x `a` y](z) form links (doc-16, doc-20).
+function labelHasBadCodeSpan(label) {
+  let i = 0;
+  while (i < label.length) {
+    if (label[i] !== '`') { i++; continue; }
+    let j = i;
+    while (j < label.length && label[j] === '`') j++;
+    const ticks = j - i;
+    const closer = '`'.repeat(ticks);
+    let close = -1;
+    let m = j;
+    while (m < label.length) {
+      if (label.startsWith(closer, m)) {
+        const beforeOk = m === 0 || label[m - 1] !== '`';
+        const afterOk = m + ticks >= label.length || label[m + ticks] !== '`';
+        if (beforeOk && afterOk) { close = m; break; }
+      }
+      m++;
+    }
+    if (close === -1) return true; // unmatched backtick
+    if (label.slice(j, close).indexOf('`') !== -1) return true; // backtick in content
+    i = close + ticks;
+  }
+  return false;
+}
+
 // Find the matching close paren for a link destination starting at index i
 // (where src[i] === '('). Handles nested parens and escapes. Returns index of
 // the matching ')' or -1.
@@ -1774,10 +1803,16 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
       const codeLines = [];
       i++;
       while (i < n && !isFenceEnd(lines[i], fence.fence, fence.len)) {
-        // Strip up to the fence's indent from each content line. A tab
-        // at the boundary stays a literal tab (code content, doc-38:
-        // "  \tindented" in a ```md fence keeps the tab, not 2 spaces).
-        codeLines.push(removeIndent(lines[i], fence.indent, base, false));
+        // Strip up to the fence's indent from each content line, but
+        // ONLY for backtick fences. Tilde fences do not dedent their
+        // content in marked (doc-29: "  ~~~objective-c" keeps the 2
+        // spaces on content lines; a ``` fence strips them). A tab at
+        // the boundary stays a literal tab (code content, doc-38).
+        if (fence.fence === '`') {
+          codeLines.push(removeIndent(lines[i], fence.indent, base, false));
+        } else {
+          codeLines.push(lines[i]);
+        }
         i++;
       }
       if (i < n) i++; // skip closing fence
