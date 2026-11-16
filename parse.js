@@ -1774,8 +1774,10 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
       const codeLines = [];
       i++;
       while (i < n && !isFenceEnd(lines[i], fence.fence, fence.len)) {
-        // strip up to the fence's indent from each content line
-        codeLines.push(removeIndent(lines[i], fence.indent, base));
+        // Strip up to the fence's indent from each content line. A tab
+        // at the boundary stays a literal tab (code content, doc-38:
+        // "  \tindented" in a ```md fence keeps the tab, not 2 spaces).
+        codeLines.push(removeIndent(lines[i], fence.indent, base, false));
         i++;
       }
       if (i < n) i++; // skip closing fence
