@@ -801,7 +801,13 @@ function parseLinkDestTitle(src, i) {
   if (j >= src.length) return null;
   let dest = '';
   if (src[j] === '<') {
-    const end = src.indexOf('>', j + 1);
+    // Find an UNESCAPED '>' (a \> does not close the destination).
+    let end = -1;
+    for (let m = j + 1; m < src.length; m++) {
+      if (src[m] === '\\' && m + 1 < src.length) { m++; continue; }
+      if (src[m] === '>') { end = m; break; }
+      if (src[m] === '\n') break;
+    }
     if (end === -1) return null;
     dest = src.slice(j + 1, end);
     if (dest.indexOf('<') !== -1 || dest.indexOf('\n') !== -1) return null;
@@ -823,7 +829,7 @@ function parseLinkDestTitle(src, i) {
       k++;
     }
     dest = src.slice(j, k);
-    if (dest.length === 0) return null;
+    // An empty destination is valid ([link]() -> href="").
     // Process backslash escapes in the destination (\X -> X for ASCII punct).
     dest = dest.replace(/\\([!-/:-@\[-`{-~])/g, '$1');
     j = k;
