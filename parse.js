@@ -1703,6 +1703,8 @@ function resolveEmphasis(out, delims) {
       }
       out[opener.outIndex] = wrapNode;
       out[closer.outIndex] = { t: 'consumed' };
+      // Remember the wrap this closer formed, for leftover placement.
+      closer.wrapNode = wrapNode;
       opener.count -= use;
       closer.count -= use;
       opener.node.count = opener.count;
@@ -1727,7 +1729,20 @@ function resolveEmphasis(out, delims) {
       // opener with leftover: insert text before the wrap
       out.splice(d.outIndex, 0, { t: 'text', s: d.node.ch.repeat(d.count) });
     } else if (slot.t === 'consumed') {
-      out[d.outIndex] = { t: 'text', s: d.node.ch.repeat(d.count) };
+      // Closer leftover. Normally it goes outside (after) the wrap.
+      // But a SINGLE leftover char goes INSIDE when the wrap is a strong
+      // that contains an inner emphasis (doc-30: **by command
+      // *tool*one*** -> <strong>...one*</strong>). Multi-char leftovers
+      // (cm-417 ***), em wraps (doc-04/20/27), and wraps without inner
+      // emphasis (cm-443/446) keep the leftover outside.
+      const wrap = d.wrapNode;
+      const hasInnerEm = wrap && wrap.t === 'strong' && d.count === 1 && wrap.children.some(c => c && (c.t === 'em' || c.t === 'strong' || c.t === 'del'));
+      if (hasInnerEm) {
+        wrap.children.push({ t: 'text', s: d.node.ch.repeat(d.count) });
+        // leave the consumed slot as-is (renders nothing)
+      } else {
+        out[d.outIndex] = { t: 'text', s: d.node.ch.repeat(d.count) };
+      }
     }
     // if slot is a delim node, the loop below handles it
   }
