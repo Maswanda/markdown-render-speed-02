@@ -1894,7 +1894,13 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
       // Type 7 HTML blocks also cannot interrupt a paragraph (only types 1-6 can).
       const _li = matchListItem(l);
       const _ht = htmlBlockType(l);
-      if (matchFence(l) || matchAtx(l) || isThematicBreak(l) || matchBlockquote(l) !== -1 || (_li && !_li.empty) || (_ht !== 0 && _ht !== 7)) {
+      // An ordered list item interrupts a paragraph only when it starts
+      // with 1 (cm-304: "14. ..." stays in the paragraph). Unordered
+      // items always interrupt. This applies only outside a list item:
+      // inside one, any ordered item can interrupt (it starts a nested
+      // list, e.g. " 49. Uses!" after a "+" item starts <ol start=49>).
+      const liInterrupts = _li && !_li.empty && (!_li.ordered || _li.num === 1 || inList);
+      if (matchFence(l) || matchAtx(l) || isThematicBreak(l) || matchBlockquote(l) !== -1 || liInterrupts || (_ht !== 0 && _ht !== 7)) {
         break;
       }
       // a link def can interrupt? No — a link def inside a paragraph is part of the paragraph text,
