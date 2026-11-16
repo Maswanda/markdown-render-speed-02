@@ -1381,7 +1381,7 @@ function parseInline(src, refs, inLink) {
         if (i >= noEmph[r][0] && i < noEmph[r][1]) { suppressed = true; break; }
       }
       if (!suppressed) {
-        delims.push({ node, outIndex: out.length - 1, count, initialCount: count, canOpen, canClose });
+        delims.push({ node, outIndex: out.length - 1, count, initialCount: count, canOpen, canClose, srcIdx: i });
       }
       i = j;
       textStart = i;
@@ -1675,7 +1675,7 @@ function parseInline(src, refs, inLink) {
   flushText(n);
 
   // Resolve emphasis using the delimiter stack.
-  markUnpairableOpeners(delims);
+  markUnpairableOpeners(delims, src);
   resolveEmphasis(out, delims);
 
   // Render nodes to HTML.
@@ -1826,7 +1826,7 @@ function isScanProtected(delims, oi, di, ch) {
 // original canOpen/canClose, and unpairable openers are flagged noOpen
 // (NOT by clearing canOpen, which would disable the rule of 3 in
 // resolveEmphasis for pairs where the run acts as a closer).
-function markUnpairableOpeners(delims) {
+function markUnpairableOpeners(delims, src) {
   const bad = [];
   for (let oi = 0; oi < delims.length; oi++) {
     const op = delims[oi];
@@ -1840,16 +1840,35 @@ function markUnpairableOpeners(delims) {
     // m=1 is unpairable.
     let m = 1;
     let pairable = false;
+    // Whether a `**` both-delimiter was skipped under the rule of 3 in
+    // this scan (doc-11): in `**a *b **c**d* e**` the `**` after `c`
+    // is such a delimiter, so the later pure `**` closer belongs to
+    // the enclosing strong, not to this opener. Only when this opener
+    // sits inside an enclosing `**` strong (a preceding `**` opener
+    // exists) — cm-415 `*foo**bar***` has no enclosing strong, so its
+    // outer `*` must still pair.
+    let sawBlockedBoth = false;
+    let hasEnclosing = false;
+    for (let pj = oi - 1; pj >= 0; pj--) {
+      if (delims[pj].node.ch === ch && delims[pj].canOpen && delims[pj].node.active && delims[pj].count >= 2) { hasEnclosing = true; break; }
+      if (delims[pj].node.ch === ch && delims[pj].canClose && !delims[pj].canOpen) break;
+    }
     for (let di = oi + 1; di < delims.length; di++) {
       const d = delims[di];
       if (d.node.ch !== ch) continue;
       if (!d.node.active) continue;
       if (isScanProtected(delims, oi, di, ch)) continue;
       if (d.canOpen && !d.canClose) m += d.count;
-      else if (!d.canOpen && d.canClose) m -= d.count;
+      else if (!d.canOpen && d.canClose) {
+        if (hasEnclosing && op.count === 1 && d.count >= 2 && m - d.count <= 0 && sawBlockedBoth) break;
+        m -= d.count;
+      }
       else if (d.canOpen && d.canClose) {
         const sum = op.count + d.count;
-        if (sum % 3 === 0 && (op.count % 3 !== 0 || d.count % 3 !== 0)) continue;
+        if (sum % 3 === 0 && (op.count % 3 !== 0 || d.count % 3 !== 0)) {
+          if (d.count >= 2) sawBlockedBoth = true;
+          continue;
+        }
         m -= d.count;
       } else continue;
       if (m <= 0) { pairable = true; break; }
