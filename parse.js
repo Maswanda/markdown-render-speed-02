@@ -1770,6 +1770,10 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
     const bq = matchBlockquote(line);
     if (bq !== -1) {
       const qLines = [];
+      // Whether the last line pushed to qLines was a lazy continuation
+      // (no > marker). A setext underline that follows a lazy line gets
+      // 4 spaces; one that follows a > line gets none (cm-093).
+      let prevWasLazy = false;
       while (i < n) {
         const l = lines[i];
         const m = matchBlockquote(l);
@@ -1782,6 +1786,7 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
           let s = l.slice(m);
           if (s[0] === '\t') s = ' '.repeat(4 - (m % 4)) + s.slice(1);
           qLines.push(s);
+          prevWasLazy = false;
           i++;
         } else if (isBlank(l)) {
           // A truly blank line (no > marker) ends the blockquote. A line that
@@ -1797,8 +1802,29 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
           // item, indented code).
           if (endsInFence(qLines)) break;
           if (qLines.length > 0 && qLines[qLines.length - 1] === '') break;
-          if (isThematicBreak(l) || matchAtx(l) !== null || matchFence(l) !== null || htmlBlockType(l) !== 0 || matchSetext(l) !== 0 || matchListItem(l) !== null || isIndentedCode(l)) break;
+          // A setext underline as a lazy continuation does NOT form a
+          // heading — it stays paragraph text. It is indented 4 spaces
+          // when the previous line was also lazy, and 0 spaces when the
+          // previous line had a > marker (cm-093: "> foo\nbar\n===" gives
+          // <p>foo\nbar\n    ===</p>; "> foo\n> bar\n===" gives === with
+          // no indent). Append it to the previous qLine (with an embedded
+          // newline) so the inner parse sees it as paragraph text, not a
+          // setext underline line. This applies only to === (level 1):
+          // --- is also a thematic break, which ends the quote instead
+          // (cm-092/101/234: "> Foo\n---" gives <hr> outside the quote).
+          if (matchSetext(l) === 1) {
+            if (qLines.length > 0) {
+              qLines[qLines.length - 1] += '\n' + (prevWasLazy ? '    ' : '') + l;
+            } else {
+              qLines.push((prevWasLazy ? '    ' : '') + l);
+            }
+            prevWasLazy = true;
+            i++;
+            continue;
+          }
+          if (isThematicBreak(l) || matchAtx(l) !== null || matchFence(l) !== null || htmlBlockType(l) !== 0 || matchListItem(l) !== null || isIndentedCode(l)) break;
           qLines.push(l);
+          prevWasLazy = true;
           i++;
         }
       }
