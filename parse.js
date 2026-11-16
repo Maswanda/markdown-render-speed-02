@@ -2084,9 +2084,11 @@ function parseList(lines, start, refs, baseCol) {
     // Track fenced code: blanks inside a fence do not make the item loose.
     // A leading blank at index 0 is the item's own empty first line (the
     // marker had no content on its line, e.g. "-   \n  foo") — not a
-    // separator between blocks — so it never makes the item loose.
+    // separator between blocks — so it never makes the item loose. The
+    // fence scan starts at 0 (an opener can be the first line) but the
+    // blank check only applies from index 1.
     let inFence = null;
-    for (let k = 1; k < subLines.length - 1; k++) {
+    for (let k = 0; k < subLines.length - 1; k++) {
       const fl = subLines[k];
       if (inFence) {
         const fm = matchFence(fl);
@@ -2095,6 +2097,7 @@ function parseList(lines, start, refs, baseCol) {
       }
       const fo = matchFence(fl);
       if (fo) { inFence = fo; continue; }
+      if (k === 0) continue; // leading blank is the item's empty first line
       if (fl === '') {
         let j = k + 1;
         while (j < subLines.length && subLines[j] === '') j++;
