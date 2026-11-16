@@ -732,25 +732,34 @@ function matchListItem(line) {
   while (p < line.length && line[p] === ' ') p++;
   if (p > 3) return null;
   const ch = line[p];
+  // Skip the whitespace after the marker, tracking the ABSOLUTE column
+  // (tabs expand from their absolute column, not from the marker).
+  // Returns {cs, col} = index and absolute column of the first
+  // non-whitespace char, or null when the line is all whitespace.
+  function skipWs(after) {
+    let cs = after;
+    let col = after;
+    while (cs < line.length && (line[cs] === ' ' || line[cs] === '\t')) {
+      if (line[cs] === '\t') col += 4 - (col % 4);
+      else col++;
+      cs++;
+    }
+    return { cs, col };
+  }
   if (ch === '-' || ch === '+' || ch === '*') {
     const after = p + 1;
-    if (after >= line.length) return { marker: ch, ordered: false, start: p, contentStart: line.length, indent: p, width: 1, empty: true };
+    if (after >= line.length) return { marker: ch, ordered: false, start: p, contentStart: line.length, contentCol: after, contentIndent: after, indent: p, width: 1, empty: true };
     if (line[after] !== ' ' && line[after] !== '\t') return null;
-    // content start: skip spaces, but a tab counts
-    let cs = after;
-    let spaces = 0;
-    while (cs < line.length && (line[cs] === ' ' || line[cs] === '\t')) {
-      if (line[cs] === '\t') spaces += 4 - (spaces % 4);
-      else spaces++;
-      cs++;
-      if (spaces >= 5) break;
+    const w = skipWs(after);
+    if (w.cs >= line.length) return { marker: ch, ordered: false, start: p, contentStart: line.length, contentCol: w.col, contentIndent: p + 2, indent: p, width: 1, empty: true };
+    if (w.col - after > 4) {
+      // content indented 5+: marker width is 1, content indent is 1 space
+      // past the marker; the content itself sits at its true absolute
+      // column (cm-007: "-\t\tfoo" -> content at col 8, indent 2, so the
+      // sub-parse sees an indented code block "  foo").
+      return { marker: ch, ordered: false, start: p, contentStart: w.cs, contentCol: w.col, contentIndent: p + 2, indent: p, width: 1 };
     }
-    if (cs >= line.length) return { marker: ch, ordered: false, start: p, contentStart: line.length, indent: p, width: 1, empty: true };
-    if (spaces > 4) {
-      // content indented 5+: marker width is 1, content starts after 1 space
-      return { marker: ch, ordered: false, start: p, contentStart: after + 1, indent: p, width: 1 };
-    }
-    return { marker: ch, ordered: false, start: p, contentStart: cs, indent: p, width: cs - p };
+    return { marker: ch, ordered: false, start: p, contentStart: w.cs, contentCol: w.col, contentIndent: w.col, indent: p, width: w.cs - p };
   }
   if (isDigit(ch)) {
     let q = p;
@@ -761,21 +770,14 @@ function matchListItem(line) {
     const d = line[q];
     if (d !== '.' && d !== ')') return null;
     const after = q + 1;
-    if (after >= line.length) return { marker: line.slice(p, after), ordered: true, num: parseInt(line.slice(p, q), 10), delim: d, start: p, contentStart: line.length, indent: p, width: after - p, empty: true };
+    if (after >= line.length) return { marker: line.slice(p, after), ordered: true, num: parseInt(line.slice(p, q), 10), delim: d, start: p, contentStart: line.length, contentCol: after, contentIndent: after, indent: p, width: after - p, empty: true };
     if (line[after] !== ' ' && line[after] !== '\t') return null;
-    let cs = after;
-    let spaces = 0;
-    while (cs < line.length && (line[cs] === ' ' || line[cs] === '\t')) {
-      if (line[cs] === '\t') spaces += 4 - (spaces % 4);
-      else spaces++;
-      cs++;
-      if (spaces >= 5) break;
+    const w = skipWs(after);
+    if (w.cs >= line.length) return { marker: line.slice(p, after), ordered: true, num: parseInt(line.slice(p, q), 10), delim: d, start: p, contentStart: line.length, contentCol: w.col, contentIndent: p + (after - p) + 1, indent: p, width: after - p, empty: true };
+    if (w.col - after > 4) {
+      return { marker: line.slice(p, after), ordered: true, num: parseInt(line.slice(p, q), 10), delim: d, start: p, contentStart: w.cs, contentCol: w.col, contentIndent: p + (after - p) + 1, indent: p, width: after - p };
     }
-    if (cs >= line.length) return { marker: line.slice(p, after), ordered: true, num: parseInt(line.slice(p, q), 10), delim: d, start: p, contentStart: line.length, indent: p, width: after - p, empty: true };
-    if (spaces > 4) {
-      return { marker: line.slice(p, after), ordered: true, num: parseInt(line.slice(p, q), 10), delim: d, start: p, contentStart: after + 1, indent: p, width: after - p };
-    }
-    return { marker: line.slice(p, after), ordered: true, num: parseInt(line.slice(p, q), 10), delim: d, start: p, contentStart: cs, indent: p, width: cs - p };
+    return { marker: line.slice(p, after), ordered: true, num: parseInt(line.slice(p, q), 10), delim: d, start: p, contentStart: w.cs, contentCol: w.col, contentIndent: w.col, indent: p, width: w.cs - p };
   }
   return null;
 }
@@ -1598,6 +1600,7 @@ function parseInline(src, refs, inLink) {
   flushText(n);
 
   // Resolve emphasis using the delimiter stack.
+  markUnpairableOpeners(delims);
   resolveEmphasis(out, delims);
 
   // Render nodes to HTML.
@@ -1710,6 +1713,80 @@ function matchHtmlTag(src, i) {
 // node currently occupying its slot in `out` (initially the delim node, then
 // a wrap node once paired). When an opener is re-used, the previously built
 // wrap node becomes a child of the new wrap node.
+// Marked's RDelim regex has a skip alternative that hides a delimiter
+// inside an opposite-char strong from the outer scan:
+// `^[^_*]*?__[^_*]*?\*[^_*]*?(?=__)` skips a * between two __ runs (and
+// symmetrically a _ between two ** runs). Such a delimiter must not count
+// in the scan's m. It is protected in opener O's scan only when the
+// opening __/** run lies after O (the scan meets it before the delimiter).
+function isScanProtected(delims, oi, di, ch) {
+  const other = ch === '*' ? '_' : '*';
+  let before = -1;
+  for (let k = di - 1; k >= 0; k--) {
+    const c = delims[k].node.ch;
+    if (c === '*' || c === '_') { before = k; break; }
+  }
+  let after = -1;
+  for (let k = di + 1; k < delims.length; k++) {
+    const c = delims[k].node.ch;
+    if (c === '*' || c === '_') { after = k; break; }
+  }
+  if (before === -1 || after === -1 || before <= oi) return false;
+  const b = delims[before], a = delims[after];
+  // The run before must be usable as an opener and the run after as a
+  // closer (a strong's two ends); bare __ runs that are closers/openers
+  // of something else do not protect (doc-15).
+  return b.node.ch === other && b.count >= 2 && b.canOpen && a.node.ch === other && a.count >= 2 && a.canClose;
+}
+
+// Marked's emphasis is a forward scan, not a delimiter stack: when its
+// tokenizer is at a left delimiter it scans forward for a right delimiter,
+// and an inner opener-like run RAISES the number of closers still needed
+// (m += count), while a "both" run is skipped when the rule of 3 blocks it.
+// A delimiter stack can pair an opener that marked's scan could never close
+// (e.g. "*a **b**c*": the ** opener raises m 1->3, the ** closer is skipped
+// by the rule of 3, the final * only brings m to 2, so the outer * stays
+// literal). Simulate that scan for each opener; one whose m never reaches
+// <= 0 can never pair in marked, so it stays literal. Scans use the
+// original canOpen/canClose, and unpairable openers are flagged noOpen
+// (NOT by clearing canOpen, which would disable the rule of 3 in
+// resolveEmphasis for pairs where the run acts as a closer).
+function markUnpairableOpeners(delims) {
+  const bad = [];
+  for (let oi = 0; oi < delims.length; oi++) {
+    const op = delims[oi];
+    if (!op.canOpen || !op.node.active) continue;
+    const ch = op.node.ch;
+    if (ch === '~') continue; // strikethrough uses its own rule
+    // Start m at 1, not op.count: marked retries a run with decreasing
+    // counts (consuming one delimiter char as text), so an opener pairs
+    // whenever even a single closer can bring m to 0 (e.g. "**foo*" forms
+    // an em from the second *). Only an opener that cannot pair even at
+    // m=1 is unpairable.
+    let m = 1;
+    let pairable = false;
+    for (let di = oi + 1; di < delims.length; di++) {
+      const d = delims[di];
+      if (d.node.ch !== ch) continue;
+      if (!d.node.active) continue;
+      if (isScanProtected(delims, oi, di, ch)) continue;
+      if (d.canOpen && !d.canClose) m += d.count;
+      else if (!d.canOpen && d.canClose) m -= d.count;
+      else if (d.canOpen && d.canClose) {
+        const sum = op.count + d.count;
+        if (sum % 3 === 0 && (op.count % 3 !== 0 || d.count % 3 !== 0)) continue;
+        m -= d.count;
+      } else continue;
+      if (m <= 0) { pairable = true; break; }
+    }
+    if (!pairable) bad.push(op);
+  }
+  for (const op of bad) {
+    op.noOpen = true;
+    op.node.noOpen = true;
+  }
+}
+
 function resolveEmphasis(out, delims) {
   // slotNode[i] = the node currently at out index i that represents delimiter delims entry.
   // We keep delims' outIndex pointing at the slot; the slot's content changes as we wrap.
@@ -1720,7 +1797,7 @@ function resolveEmphasis(out, delims) {
       let openerIdx = -1;
       for (let oj = di - 1; oj >= 0; oj--) {
         const op = delims[oj];
-        if (!op.canOpen || !op.node.active) continue;
+        if (!op.canOpen || !op.node.active || op.noOpen) continue;
         if (op.node.ch !== closer.node.ch) continue;
         // An opener whose slot was consumed inside an already-formed
         // emphasis cannot pair across that emphasis boundary.
@@ -1927,8 +2004,15 @@ function parseBlocks(lines, refs, baseCol, inListItem) {
         // content in marked (doc-29: "  ~~~objective-c" keeps the 2
         // spaces on content lines; a ``` fence strips them). A tab at
         // the boundary stays a literal tab (code content, doc-38).
+        // The strip counts WHITESPACE CHARACTERS, not columns: a tab
+        // is removed whole (doc-17: an indented ``` fence whose content
+        // line starts with a tab loses the whole tab, not a partial
+        // expansion to spaces).
         if (fence.fence === '`') {
-          codeLines.push(removeIndent(lines[i], fence.indent, base, false));
+          let s = lines[i];
+          let k = 0;
+          while (k < fence.indent && k < s.length && (s[k] === ' ' || s[k] === '\t')) k++;
+          codeLines.push(s.slice(k));
         } else {
           codeLines.push(lines[i]);
         }
@@ -2250,19 +2334,21 @@ function parseList(lines, start, refs, baseCol) {
     if (skippedBlank && items.length > 0) loose = true;
     // For ordered lists, numbers don't need to be sequential, but the first item's
     // number is the start. Subsequent items can be any number.
-    // The content indent is where the item's content starts (contentStart);
-    // for an empty item the content on the next line is indented by
-    // marker width + 1 space.
-    const contentIndent = li.empty ? li.indent + li.width + 1 : li.contentStart;
+    // The content indent is where the item's content starts; for an empty
+    // item the content on the next line is indented by marker width + 1.
+    // contentCol is the true absolute column of the first content char
+    // (can exceed contentIndent in the 5+ whitespace case, cm-007).
+    const contentIndent = li.empty ? li.indent + li.width + 1 : li.contentIndent;
     const itemLines = [];
     // Indices of itemLines that are lazy continuations (indent below
     // contentIndent): their leading spaces are paragraph text and must
     // NOT be removed by the subLines dedent (doc-38/doc-06: "- foo\n bar"
     // keeps the space: "foo\n bar").
     const lazyIdx = new Set();
-    // first line content
+    // first line content: prepend contentCol spaces so the content sits at
+    // its true absolute column; the sub-parse strips contentIndent.
     if (li.contentStart < lines[i].length) {
-      itemLines.push(' '.repeat(contentIndent) + lines[i].slice(li.contentStart));
+      itemLines.push(' '.repeat(li.contentCol) + lines[i].slice(li.contentStart));
     } else {
       itemLines.push('');
     }
@@ -2310,9 +2396,11 @@ function parseList(lines, start, refs, baseCol) {
         break;
       }
       // lazy continuation: a paragraph line (not indented enough) continues the item's paragraph.
-      // Block starts (thematic break, ATX heading, fence, HTML block) interrupt
-      // the list instead of continuing it.
-      if (isThematicBreak(l) || matchAtx(l) !== null || matchFence(l) !== null || htmlBlockType(l) !== 0) {
+      // Block starts (thematic break, ATX heading, fence, HTML block,
+      // blockquote) interrupt the list instead of continuing it: a `>`
+      // line below the item's content indent is a sibling blockquote in
+      // the outer container, not a lazy paragraph line (doc-17).
+      if (isThematicBreak(l) || matchAtx(l) !== null || matchFence(l) !== null || htmlBlockType(l) !== 0 || matchBlockquote(l) !== -1) {
         break;
       }
       // A lazy line that looks like a list item (marker at its indent)
