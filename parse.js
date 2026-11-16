@@ -1736,7 +1736,10 @@ function parseList(lines, start, refs) {
     if (skippedBlank && items.length > 0) loose = true;
     // For ordered lists, numbers don't need to be sequential, but the first item's
     // number is the start. Subsequent items can be any number.
-    const contentIndent = li.indent + li.width;
+    // The content indent is where the item's content starts (contentStart);
+    // for an empty item the content on the next line is indented by
+    // marker width + 1 space.
+    const contentIndent = li.empty ? li.indent + li.width + 1 : li.contentStart;
     const itemLines = [];
     // first line content
     if (li.contentStart < lines[i].length) {
